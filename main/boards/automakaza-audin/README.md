@@ -1,0 +1,45 @@
+# Automakaza AUDIN (ESP_S3-AUDIN RE1.1)
+
+Placa adaptadora de áudio para módulo ESP32-S3-WROOM-1 **N16R8** (16 MB de flash,
+8 MB de PSRAM octal), com codec **ES8388**, amplificador **HT6872**, dois
+microfones de eletreto, três botões e conector para display.
+
+## Pinagem
+
+| Função | GPIO |
+|---|---|
+| I2C do ES8388 (SDA / SCL), endereço 0x10 | 14 / 47 |
+| I2S MCLK / BCLK / LRCK | 8 / 3 / 9 |
+| I2S saída para o codec (DSDIN) | 46 |
+| I2S entrada do microfone (ASDOUT, entrada LINE1) | 10 |
+| Botão BOOT do módulo | 0 |
+| Botões esquerdo / meio / direito | 12 / 11 / 13 |
+| LED verde | 21 |
+| Display OLED I2C (SDA / SCL), endereço 0x3C | 5 / 4 |
+
+Observações:
+
+- O HT6872 não tem enable em GPIO: fica sempre ligado. Para não haver chiado,
+  as saídas analógicas do DAC são desligadas quando o áudio fica ocioso.
+- **Alimente pela USB-C da placa principal.** Pela USB do módulo o ES8388 fica
+  sem alimentação (todas as linhas dele ficam presas em nível baixo).
+- O display é opcional: sem resposta em 0x3C, a placa segue sem tela.
+
+## Botões
+
+- **BOOT ou meio**: inicia/encerra a conversa. Durante a partida, entra na
+  configuração de Wi-Fi.
+- **Direita**: volume +10 (segurar = máximo).
+- **Esquerda**: volume -10 (segurar = mudo).
+
+## Compilar
+
+Variantes por tipo de display:
+
+- `automakaza-audin-128x64` (SSD1306 128x64)
+- `automakaza-audin-128x32` (SSD1306 128x32)
+- `automakaza-audin-sh1106` (SH1106 128x64)
+
+```bash
+python scripts/build.py automakaza-audin --name automakaza-audin-128x64 --language pt-BR
+```
