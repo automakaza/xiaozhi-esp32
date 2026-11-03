@@ -1,0 +1,40 @@
+name: Build Automakaza AUDIN
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'main/boards/automakaza-audin/**'
+      - '.github/workflows/automakaza-audin.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v6.1
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - automakaza-audin-128x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          source "$IDF_PATH/export.sh"
+          python scripts/build.py automakaza-audin --name "${{ matrix.variant }}" --language pt-BR
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.variant }}-pt-BR
+          path: build/merged-binary.bin
+          if-no-files-found: error
