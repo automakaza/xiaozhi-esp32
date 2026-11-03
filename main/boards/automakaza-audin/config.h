@@ -63,6 +63,9 @@
 #error "OLED display type is not selected"
 #endif
 
+// Olhos grandes animados no lugar da carinha (só 128x64). 0 = carinha original.
+#define DISPLAY_ROBOT_EYES 1
+
 // Se a imagem aparecer de cabeça para baixo, inverta os dois valores.
 #define DISPLAY_MIRROR_X true
 #define DISPLAY_MIRROR_Y true

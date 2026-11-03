@@ -4,7 +4,8 @@
 // - Áudio: Es8388AudioCodec (I2S duplex), com as saídas analógicas do DAC
 //   desligadas quando o áudio fica ocioso (o HT6872 não tem enable).
 // - Display: OLED I2C SSD1306/SH1106 opcional (SDA GPIO5, SCL GPIO4). Se não
-//   houver display ligado, a placa funciona sem ele.
+//   houver display ligado, a placa funciona sem ele. Em 128x64 mostra olhos
+//   grandes animados (EyesOledDisplay; desligável em DISPLAY_ROBOT_EYES).
 // - Botões: BOOT (módulo) e meio = conversar / configurar Wi-Fi;
 //   esquerda = volume -, direita = volume +.
 // - LED: verde da placa principal (GPIO21).
@@ -13,6 +14,7 @@
 #include "wifi_board.h"
 #include "codecs/es8388_audio_codec.h"
 #include "display/oled_display.h"
+#include "eyes_oled_display.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
@@ -175,8 +177,13 @@ private:
         ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, false));
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
 
+#if DISPLAY_ROBOT_EYES
+        display_ = new EyesOledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                       DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+#else
         display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT,
                                    DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+#endif
     }
 
     void ToggleChatOrConfigureWifi() {
