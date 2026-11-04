@@ -31,6 +31,10 @@ Observações:
   atualização) continuam aparecendo como no original. Para voltar à carinha
   original, `DISPLAY_ROBOT_EYES 0` no `config.h`.
 
+- Ao ouvir a palavra de ativação, a placa toca um bipe e já fica escutando
+  (`CONFIG_SEND_WAKE_WORD_DATA=n`): o áudio da palavra não vai para o servidor,
+  então a assistente não responde ao próprio nome e escuta o pedido em seguida.
+
 ## Botões
 
 - **BOOT ou meio**: inicia/encerra a conversa. Durante a partida, entra na
