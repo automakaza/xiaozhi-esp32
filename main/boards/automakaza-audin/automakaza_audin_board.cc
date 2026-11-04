@@ -45,6 +45,9 @@ public:
                            AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS,
                            AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN,
                            AUDIO_CODEC_ES8388_ADDR, AUDIO_INPUT_REFERENCE) {
+        // Volume inicial depois de gravar firmware novo (a gravação completa
+        // apaga o volume salvo). Depois disso vale o último volume ajustado.
+        output_volume_ = AUDIO_DEFAULT_OUTPUT_VOLUME;
 #if AUDIO_DAC_POWER_DOWN_ON_IDLE
         i2c_device_config_t dev_cfg = {};
         dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;

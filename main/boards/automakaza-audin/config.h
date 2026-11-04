@@ -16,7 +16,7 @@
 // Es8388AudioCodec exige a mesma taxa na entrada e na saída.
 #define AUDIO_INPUT_SAMPLE_RATE     24000
 #define AUDIO_OUTPUT_SAMPLE_RATE    24000
-#define AUDIO_DEFAULT_OUTPUT_VOLUME 80
+#define AUDIO_DEFAULT_OUTPUT_VOLUME 50   // volume inicial após gravar o firmware
 
 // Sem referência de saída na entrada: os dois microfones ocupam LIN1/RIN1 do
 // ES8388 (não há laço de retorno do DAC para cancelamento de eco).
