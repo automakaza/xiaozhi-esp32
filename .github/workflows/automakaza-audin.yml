@@ -1,7 +1,30 @@
 name: Build Automakaza AUDIN
 
+# Compila só a placa Automakaza AUDIN em pt-BR e publica o merged-binary.bin
+# (grava em 0x0; serve no web.esphome.io). Roda a cada push que mexa na placa
+# ou manualmente em Actions > Build Automakaza AUDIN > Run workflow.
 on:
   workflow_dispatch:
+    inputs:
+      wake_word:
+        description: 'Palavra de ativação'
+        type: choice
+        default: wn9_hiesp
+        options:
+          - wn9_hiesp
+          - wn9_jarvis_tts
+          - wn9_alexa
+          - wn9_sophia_tts
+          - wn9_computer_tts
+          - wn9_mycroft_tts
+          - wn9_hijoy_tts
+          - wn9_hiandy_tts2
+          - wn9_heykira_tts3
+          - wn9_hilili_tts
+          - wn9_hijason_tts2
+          - wn9_heyivy_tts2
+          - wn9_himfive
+          - wn9_hiwalle_tts2
   push:
     paths:
       - 'main/boards/automakaza-audin/**'
@@ -27,14 +50,17 @@ jobs:
 
       - name: Build
         shell: bash
+        env:
+          # Em push (sem escolha manual) usa Hi,ESP.
+          WAKE_WORD: ${{ inputs.wake_word || 'wn9_hiesp' }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           source "$IDF_PATH/export.sh"
-          python scripts/build.py automakaza-audin --name "${{ matrix.variant }}" --language pt-BR
+          python scripts/build.py automakaza-audin --name "${{ matrix.variant }}" --language pt-BR --wake-word "$WAKE_WORD"
 
       - name: Upload firmware
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.variant }}-pt-BR
+          name: ${{ matrix.variant }}-pt-BR-${{ inputs.wake_word || 'wn9_hiesp' }}
           path: build/merged-binary.bin
           if-no-files-found: error
