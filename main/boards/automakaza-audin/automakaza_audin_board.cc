@@ -6,7 +6,8 @@
 // - Display: OLED I2C SSD1306/SH1106 opcional (SDA GPIO5, SCL GPIO4). Se não
 //   houver display ligado, a placa funciona sem ele. Em 128x64 mostra olhos
 //   grandes animados (EyesOledDisplay; desligável em DISPLAY_ROBOT_EYES).
-// - Botões: BOOT (módulo) e meio = conversar / configurar Wi-Fi;
+// - Botões: BOOT (módulo) e meio = conversar / configurar Wi-Fi
+//   (segurar o meio = configuração de Wi-Fi a qualquer momento);
 //   esquerda = volume -, direita = volume +.
 // - LED: verde da placa principal (GPIO21).
 // ============================================================================
@@ -211,6 +212,9 @@ private:
     void InitializeButtons() {
         boot_button_.OnClick([this]() { ToggleChatOrConfigureWifi(); });
         talk_button_.OnClick([this]() { ToggleChatOrConfigureWifi(); });
+        // Segurar o botão do meio: entra na configuração de Wi-Fi a qualquer
+        // momento (para trocar de rede ou o endereço OTA do servidor).
+        talk_button_.OnLongPress([this]() { EnterWifiConfigMode(); });
 
         volume_up_button_.OnClick([this]() { ChangeVolume(10); });
         volume_up_button_.OnLongPress([this]() {

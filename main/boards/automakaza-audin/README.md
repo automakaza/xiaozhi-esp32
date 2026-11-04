@@ -35,6 +35,8 @@ Observações:
 
 - **BOOT ou meio**: inicia/encerra a conversa. Durante a partida, entra na
   configuração de Wi-Fi.
+- **Segurar o meio**: entra na configuração de Wi-Fi a qualquer momento
+  (rede e, em "avançado", o endereço OTA do servidor).
 - **Direita**: volume +10 (segurar = máximo).
 - **Esquerda**: volume -10 (segurar = mudo).
 
