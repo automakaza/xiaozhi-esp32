@@ -21,6 +21,8 @@ Observações:
 
 - O HT6872 não tem enable em GPIO: fica sempre ligado. Para não haver chiado,
   as saídas analógicas do DAC são desligadas quando o áudio fica ocioso.
+- A saída analógica do ES8388 fica em `AUDIO_ANALOG_OUTPUT_DB` (-15 dB) em vez
+  de 0 dB: com o HT6872 a escala original era forte demais (10% já soava alto).
 - **Alimente pela USB-C da placa principal.** Pela USB do módulo o ES8388 fica
   sem alimentação (todas as linhas dele ficam presas em nível baixo).
 - O display é opcional: sem resposta em 0x3C, a placa segue sem tela.

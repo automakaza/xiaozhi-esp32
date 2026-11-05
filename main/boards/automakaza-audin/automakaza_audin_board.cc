@@ -48,22 +48,23 @@ public:
         // Volume inicial depois de gravar firmware novo (a gravação completa
         // apaga o volume salvo). Depois disso vale o último volume ajustado.
         output_volume_ = AUDIO_DEFAULT_OUTPUT_VOLUME;
-#if AUDIO_DAC_POWER_DOWN_ON_IDLE
         i2c_device_config_t dev_cfg = {};
         dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
         dev_cfg.device_address = AUDIO_CODEC_ES8388_ADDR_7BIT;
         dev_cfg.scl_speed_hz = 100 * 1000;
         if (i2c_master_bus_add_device(i2c_bus, &dev_cfg, &dac_dev_) != ESP_OK) {
-            ESP_LOGW(TAG, "Sem acesso direto ao ES8388; DAC fica sempre ligado");
+            ESP_LOGW(TAG, "Sem acesso direto ao ES8388; DAC sempre ligado e volume analógico padrão");
             dac_dev_ = nullptr;
         }
-#endif
     }
 
     virtual void EnableOutput(bool enable) override {
         if (enable) {
             SetDacPower(true);
             Es8388AudioCodec::EnableOutput(true);
+            // O Es8388AudioCodec põe a saída analógica em 0 dB; com o HT6872 isso
+            // fica alto demais (10% já era forte). Abaixa a escala inteira.
+            SetAnalogOutput(AUDIO_ANALOG_OUTPUT_DB);
         } else {
             Es8388AudioCodec::EnableOutput(false);
             SetDacPower(false);
@@ -72,6 +73,21 @@ public:
 
 private:
     i2c_master_dev_handle_t dac_dev_ = nullptr;
+
+    // Volume analógico das saídas (regs 46..49 = LOUT1/ROUT1/LOUT2/ROUT2):
+    // 0..33 = -45 dB .. +4,5 dB, passos de 1,5 dB (30 = 0 dB).
+    void SetAnalogOutput(float db) {
+        if (dac_dev_ == nullptr) {
+            return;
+        }
+        int val = 30 + static_cast<int>(db / 1.5f);
+        if (val < 0) val = 0;
+        if (val > 33) val = 33;
+        for (uint8_t reg = 46; reg <= 49; reg++) {
+            uint8_t buf[2] = {reg, static_cast<uint8_t>(val)};
+            i2c_master_transmit(dac_dev_, buf, sizeof(buf), 100);
+        }
+    }
 
     void SetDacPower(bool on) {
 #if AUDIO_DAC_POWER_DOWN_ON_IDLE

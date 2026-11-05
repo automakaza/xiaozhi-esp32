@@ -39,6 +39,11 @@
 // desligadas (registrador 0x04) para tirar o chiado. Pôr 0 para desativar.
 #define AUDIO_DAC_POWER_DOWN_ON_IDLE 1
 
+// Volume máximo real da saída analógica do ES8388 (dB, -45 a +4,5; 0 = original).
+// Com o HT6872 o original (0 dB) é forte demais: 10% no volume já soava alto e o
+// som saturava no máximo. -15 dB desloca a escala toda para baixo.
+#define AUDIO_ANALOG_OUTPUT_DB -15
+
 // --- Botões e LED -------------------------------------------------------------
 #define BOOT_BUTTON_GPIO         GPIO_NUM_0    // BOOT do módulo
 #define TALK_BUTTON_GPIO         GPIO_NUM_11   // botão do meio
