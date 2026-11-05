@@ -27,7 +27,7 @@ Observações:
   sem alimentação (todas as linhas dele ficam presas em nível baixo).
 - O display é opcional: sem resposta em 0x3C, a placa segue sem tela.
 - No OLED 128x64 a carinha é substituída por **olhos grandes animados**
-  (`eyes_oled_display.cc`): piscam, olham em volta e mudam com a emoção
+  (`eyes_oled_display.cc`): têm pupilas que olham em volta, piscam e mudam com a emoção
   (feliz, triste, bravo, surpreso, pensando, sono, piscadinha...). O texto da
   conversa rola numa linha embaixo. Ícones de sistema (aviso, Wi-Fi,
   atualização) continuam aparecendo como no original. Para voltar à carinha

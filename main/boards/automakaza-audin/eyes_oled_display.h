@@ -42,6 +42,7 @@ private:
 
     lv_obj_t* layer_ = nullptr;
     lv_obj_t* eye_[2] = {nullptr, nullptr};
+    lv_obj_t* pupil_[2] = {nullptr, nullptr};
     lv_obj_t* lid_top_[2] = {nullptr, nullptr};
     lv_obj_t* lid_bottom_[2] = {nullptr, nullptr};
     lv_obj_t* text_label_ = nullptr;
@@ -56,6 +57,16 @@ private:
     int look_dy_ = 0;
     uint32_t next_blink_ms_ = 0;
     uint32_t next_look_ms_ = 0;
+
+    // Pupilas (bolinhas): posição em % do espaço livre dentro do olho (-100..100)
+    bool pupil_show_ = true;
+    int pupil_base_x_ = 0;     // posição de repouso da emoção
+    int pupil_base_y_ = 0;
+    int pupil_size_ = 100;     // % do tamanho normal (surpreso = menor)
+    int pupil_x_ = 0;          // posição atual
+    int pupil_y_ = 0;
+    int pupil_tx_ = 0;         // posição alvo (olhadinha)
+    int pupil_ty_ = 0;
 
     bool SelectShapes(const char* emotion);
     void ApplyShape();

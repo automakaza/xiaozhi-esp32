@@ -74,6 +74,12 @@ void EyesOledDisplay::SetupUI() {
     for (int i = 0; i < 2; i++) {
         eye_[i] = lv_obj_create(layer_);
         StyleBox(eye_[i], lv_color_black(), 8);
+        // recorta os filhos (pupila) nos cantos arredondados do olho
+        lv_obj_set_style_clip_corner(eye_[i], true, 0);
+
+        // Pupila: bolinha "apagada" dentro do olho aceso
+        pupil_[i] = lv_obj_create(eye_[i]);
+        StyleBox(pupil_[i], lv_color_white(), LV_RADIUS_CIRCLE);
 
         lid_top_[i] = lv_obj_create(eye_[i]);
         StyleBox(lid_top_[i], lv_color_white(), 0);
@@ -118,6 +124,10 @@ bool EyesOledDisplay::SelectShapes(const char* emotion) {
     EyeShape right = normal;
     allow_blink_ = true;
     allow_look_ = false;
+    pupil_show_ = true;
+    pupil_base_x_ = 0;
+    pupil_base_y_ = 0;
+    pupil_size_ = 100;
 
     if (is("neutral") || is("relaxed")) {
         allow_look_ = true;
@@ -125,28 +135,40 @@ bool EyesOledDisplay::SelectShapes(const char* emotion) {
                is("delicious") || is("kissy") || is("silly")) {
         left.happy = right.happy = true;
         allow_blink_ = false;
+        pupil_show_ = false;  // olho em arco "∩" não tem bolinha
     } else if (is("sad") || is("crying")) {
         left = right = {34, 26, 9, 0, 4, 9, 160, false};
+        pupil_base_y_ = 70;   // olhar para baixo
     } else if (is("angry")) {
         left = right = {34, 28, 7, 0, 2, 12, -250, false};
+        pupil_base_y_ = 20;
     } else if (is("surprised") || is("shocked")) {
         left = right = {32, 32, LV_RADIUS_CIRCLE, 0, 0, 0, 0, false};
+        pupil_size_ = 70;     // pupila pequena de susto
     } else if (is("thinking")) {
         left = {34, 26, 9, 8, -7, 0, 0, false};
         right = {34, 20, 9, 8, -7, 0, 0, false};
+        pupil_base_x_ = 80;   // olhando para cima e para o lado
+        pupil_base_y_ = -90;
     } else if (is("confused")) {
         left = {30, 18, 7, -4, -2, 0, 0, false};
         right = {36, 30, 9, -4, 0, 0, 0, false};
+        pupil_base_x_ = -70;
+        pupil_base_y_ = -40;
     } else if (is("sleepy")) {
         left = right = {36, 4, 2, 0, 6, 0, 0, false};
         allow_blink_ = false;
+        pupil_show_ = false;
     } else if (is("winking")) {
         right = {36, 4, 2, 0, 4, 0, 0, false};
         allow_blink_ = false;
     } else if (is("embarrassed")) {
         left = right = {32, 22, 8, 0, 8, 0, 0, false};
+        pupil_base_x_ = -60;  // olhar de lado, sem graça
+        pupil_base_y_ = 80;
     } else if (is("cool") || is("confident")) {
         left = right = {38, 26, 6, 0, 2, 12, 0, false};
+        pupil_base_y_ = 30;
     } else {
         return false;  // não é emoção (ícone de sistema)
     }
@@ -154,6 +176,8 @@ bool EyesOledDisplay::SelectShapes(const char* emotion) {
     shape_[0] = left;
     shape_[1] = right;
     blink_step_ = 0;
+    pupil_tx_ = pupil_base_x_;
+    pupil_ty_ = pupil_base_y_;
     if (!allow_look_) {
         look_dx_ = 0;
         look_dy_ = 0;
@@ -186,6 +210,35 @@ void EyesOledDisplay::ApplyShape() {
         lv_obj_set_pos(eye_[i], x, y);
         lv_obj_set_size(eye_[i], w, h);
         lv_obj_set_style_radius(eye_[i], r, 0);
+
+        // Pupila: elipse em pé, que anda dentro da parte VISÍVEL do olho
+        // (abaixo da pálpebra, quando ela existe).
+        {
+            const int full_h = s.h * scale_area / 100;  // altura sem piscada
+            int lid_px = (blink == 100) ? s.lid_top * scale_area / 100 : 0;
+            if (s.tilt != 0 && lid_px > 0) {
+                lid_px += 3;  // pálpebra inclinada desce mais num dos cantos
+            }
+            const int margem = 2;
+            int topo = std::min(h, lid_px + margem);   // primeira linha livre
+            int fundo = h - margem;                      // última linha livre
+            int livre_h = fundo - topo;
+            int pw = std::max(4, w * 25 / 100 * pupil_size_ / 100);
+            int ph = std::max(4, full_h * 42 / 100 * pupil_size_ / 100);
+            ph = std::min(ph, livre_h - 2);
+            pw = std::min(pw, std::max(4, ph + 2));      // não fica mais largo que alto+2
+            if (!pupil_show_ || s.happy || h < 8 || ph < 4) {
+                lv_obj_add_flag(pupil_[i], LV_OBJ_FLAG_HIDDEN);
+            } else {
+                int livre_x = std::max(0, (w - pw) / 2 - margem);
+                int livre_y = std::max(0, (livre_h - ph) / 2);
+                int px = (w - pw) / 2 + livre_x * pupil_x_ / 100;
+                int py = topo + (livre_h - ph) / 2 + livre_y * pupil_y_ / 100;
+                lv_obj_set_size(pupil_[i], pw, ph);
+                lv_obj_set_pos(pupil_[i], px, py);
+                lv_obj_remove_flag(pupil_[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
 
         // Pálpebra de cima (olho meio fechado), podendo inclinar: a borda de
         // baixo da pálpebra gira em torno do próprio meio. Some na piscada.
@@ -301,9 +354,34 @@ void EyesOledDisplay::OnTimer() {
     }
 
     if (allow_look_ && blink_step_ == 0 && now >= next_look_ms_) {
-        look_dx_ = static_cast<int>(RandomBetween(0, 12)) - 6;
-        look_dy_ = static_cast<int>(RandomBetween(0, 6)) - 3;
-        next_look_ms_ = now + RandomBetween(1500, 4500);
+        // As pupilas olham para um lado; o olho acompanha só um pouquinho.
+        if (RandomBetween(0, 3) == 0) {
+            pupil_tx_ = 0;  // volta a olhar para frente
+            pupil_ty_ = 0;
+        } else {
+            // posições bem marcadas: lados, cantos, cima e baixo
+            static const int kX[] = {-100, -100, -60, 60, 100, 100};
+            static const int kY[] = {-80, -40, 0, 0, 60};
+            pupil_tx_ = kX[RandomBetween(0, 5)];
+            pupil_ty_ = kY[RandomBetween(0, 4)];
+        }
+        look_dx_ = pupil_tx_ * 4 / 100;
+        look_dy_ = pupil_ty_ * 3 / 100;
+        next_look_ms_ = now + RandomBetween(1200, 3800);
+        changed = true;
+    }
+
+    // Movimento rápido mas suave das pupilas até o alvo (como um olhar de verdade)
+    if (pupil_x_ != pupil_tx_ || pupil_y_ != pupil_ty_) {
+        auto passo = [](int atual, int alvo) {
+            int d = alvo - atual;
+            if (d == 0) return atual;
+            int p = d / 2;
+            if (p == 0) p = (d > 0) ? 1 : -1;
+            return atual + p;
+        };
+        pupil_x_ = passo(pupil_x_, pupil_tx_);
+        pupil_y_ = passo(pupil_y_, pupil_ty_);
         changed = true;
     }
 
