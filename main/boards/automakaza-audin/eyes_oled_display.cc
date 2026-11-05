@@ -1,6 +1,7 @@
 #include "eyes_oled_display.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include <esp_log.h>
@@ -74,8 +75,6 @@ void EyesOledDisplay::SetupUI() {
     for (int i = 0; i < 2; i++) {
         eye_[i] = lv_obj_create(layer_);
         StyleBox(eye_[i], lv_color_black(), 8);
-        // recorta os filhos (pupila) nos cantos arredondados do olho
-        lv_obj_set_style_clip_corner(eye_[i], true, 0);
 
         // Pupila: bolinha "apagada" dentro do olho aceso
         pupil_[i] = lv_obj_create(eye_[i]);
@@ -232,8 +231,15 @@ void EyesOledDisplay::ApplyShape() {
             } else {
                 int livre_x = std::max(0, (w - pw) / 2 - margem);
                 int livre_y = std::max(0, (livre_h - ph) / 2);
-                int px = (w - pw) / 2 + livre_x * pupil_x_ / 100;
-                int py = topo + (livre_h - ph) / 2 + livre_y * pupil_y_ / 100;
+                // Nos cantos (diagonal) anda menos, para não "furar" a borda
+                // arredondada do olho (sem recorte de cantos, que pesa no LVGL).
+                int ox = pupil_x_, oy = pupil_y_;
+                if (std::abs(ox) > 50 && std::abs(oy) > 50) {
+                    ox = ox * 70 / 100;
+                    oy = oy * 70 / 100;
+                }
+                int px = (w - pw) / 2 + livre_x * ox / 100;
+                int py = topo + (livre_h - ph) / 2 + livre_y * oy / 100;
                 lv_obj_set_size(pupil_[i], pw, ph);
                 lv_obj_set_pos(pupil_[i], px, py);
                 lv_obj_remove_flag(pupil_[i], LV_OBJ_FLAG_HIDDEN);
