@@ -156,6 +156,9 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     int clock_ticks_ = 0;
+    // Automakaza: reabre a conversa sozinha se o Wi-Fi cair enquanto fala/toca rádio
+    bool reabrir_apos_queda_ = false;
+    int64_t queda_us_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
 

@@ -14,6 +14,7 @@
 
 #include <driver/gpio.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <arpa/inet.h>
 #include <cJSON.h>
 #include <algorithm>
@@ -322,6 +323,22 @@ void Application::HandleNetworkConnectedEvent() {
             "activation", 4096 * 2, this, 2, &activation_task_handle_);
     }
 
+    // Automakaza: o Wi-Fi caiu enquanto ela falava/tocava rádio e voltou logo:
+    // reabre a conversa sozinha (o servidor retoma a rádio que estava tocando).
+    if (reabrir_apos_queda_) {
+        reabrir_apos_queda_ = false;
+        if (esp_timer_get_time() - queda_us_ < 60LL * 1000 * 1000) {
+            ESP_LOGI(TAG, "Network back after drop, reopening audio channel");
+            Schedule([this]() {
+                if (GetDeviceState() == kDeviceStateIdle && !protocol_->IsAudioChannelOpened()) {
+                    ListeningMode mode = GetDefaultListeningMode();
+                    SetDeviceState(kDeviceStateConnecting);
+                    Schedule([this, mode]() { ContinueOpenAudioChannel(mode); });
+                }
+            });
+        }
+    }
+
     // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
     display->UpdateStatusBar(true);
@@ -336,6 +353,10 @@ void Application::HandleNetworkDisconnectedEvent() {
     if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
         state == kDeviceStateSpeaking) {
         ESP_LOGI(TAG, "Closing audio channel due to network disconnection");
+        if (state == kDeviceStateSpeaking) {
+            reabrir_apos_queda_ = true;
+            queda_us_ = esp_timer_get_time();
+        }
         protocol_->CloseAudioChannel();
     }
 
