@@ -1471,6 +1471,29 @@ void Application::SetAecMode(AecMode mode) {
     });
 }
 
+void Application::SendPresenceEvent(const std::string& evento) {
+    Schedule([this, evento]() {
+        if (!protocol_) {
+            return;
+        }
+        if (protocol_->IsAudioChannelOpened()) {
+            protocol_->SendPresenceEvent(evento, false);
+            return;
+        }
+        if (evento != "voltou" || GetDeviceState() != kDeviceStateIdle) {
+            return;
+        }
+        ESP_LOGI(TAG, "Presence back: opening audio channel");
+        SetDeviceState(kDeviceStateConnecting);
+        Schedule([this, evento]() {
+            ContinueOpenAudioChannel(GetDefaultListeningMode());
+            if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                protocol_->SendPresenceEvent(evento, true);
+            }
+        });
+    });
+}
+
 void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
 
 void Application::ResetProtocol() {

@@ -16,6 +16,7 @@ microfones de eletreto, três botões e conector para display.
 | Botões esquerdo / meio / direito | 12 / 11 / 13 |
 | LED verde | 21 |
 | Display OLED I2C (SDA / SCL), endereço 0x3C | 17 / 18 |
+| Radar HLK-LD2401: OUT / TX do sensor / RX do sensor | 4 / 6 / 5 |
 
 Observações:
 
@@ -36,6 +37,14 @@ Observações:
 - Ao ouvir a palavra de ativação, a placa toca um bipe e já fica escutando
   (`CONFIG_SEND_WAKE_WORD_DATA=n`): o áudio da palavra não vai para o servidor,
   então a assistente não responde ao próprio nome e escuta o pedido em seguida.
+
+- **Sensor de presença HLK-LD2401** (alimentar em **3,3 V**): sem ninguém por
+  perto, os olhos ficam sonolentos (2 min), fecham (5 min), a tela apaga
+  (10 min) e, se a rádio estiver tocando, ela pergunta se tem alguém e desliga
+  sem resposta (15 min). Quando alguém volta, ela acorda na hora e oferece
+  voltar à rádio. Tempos em `PRESENCA_*_S` no `config.h` (0 = desliga a etapa;
+  `PRESENCE_ENABLED 0` = sem sensor). A IA ganha a ferramenta
+  `self.presence.get_status` (tem alguém, movendo/parado, distância em cm).
 
 ## Botões
 

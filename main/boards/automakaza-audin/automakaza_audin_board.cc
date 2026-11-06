@@ -3,19 +3,24 @@
 //
 // - Áudio: Es8388AudioCodec (I2S duplex), com as saídas analógicas do DAC
 //   desligadas quando o áudio fica ocioso (o HT6872 não tem enable).
-// - Display: OLED I2C SSD1306/SH1106 opcional (SDA GPIO5, SCL GPIO4). Se não
+// - Display: OLED I2C SSD1306/SH1106 opcional (SDA GPIO17, SCL GPIO18). Se não
 //   houver display ligado, a placa funciona sem ele. Em 128x64 mostra olhos
 //   grandes animados (EyesOledDisplay; desligável em DISPLAY_ROBOT_EYES).
 // - Botões: BOOT (módulo) e meio = conversar / configurar Wi-Fi
 //   (segurar o meio = configuração de Wi-Fi a qualquer momento);
 //   esquerda = volume -, direita = volume +.
 // - LED: verde da placa principal (GPIO21).
+// - Presença: radar HLK-LD2401 (OUT GPIO4, serial GPIO6/5). Sem ninguém por
+//   perto ela fica sonolenta, dorme, apaga a tela e pausa a rádio (tempos no
+//   config.h). Ferramenta self.presence.get_status para a IA saber a distância.
 // ============================================================================
 
 #include "wifi_board.h"
 #include "codecs/es8388_audio_codec.h"
 #include "display/oled_display.h"
 #include "eyes_oled_display.h"
+#include "presence_sensor.h"
+#include "mcp_server.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
@@ -112,6 +117,11 @@ private:
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
     Display* display_ = nullptr;
+    EyesOledDisplay* eyes_ = nullptr;
+    PresenceSensor* presence_ = nullptr;
+    int ausente_s_ = 0;          // segundos sem ninguém
+    bool tela_apagada_ = false;
+    bool ausente_enviado_ = false;  // avisou o servidor (rádio) e espera a volta
     Button boot_button_;
     Button talk_button_;
     Button volume_up_button_;
@@ -198,8 +208,9 @@ private:
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
 
 #if DISPLAY_ROBOT_EYES
-        display_ = new EyesOledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT,
-                                       DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        eyes_ = new EyesOledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                    DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        display_ = eyes_;
 #else
         display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT,
                                    DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
@@ -248,6 +259,96 @@ private:
         });
     }
 
+    // ---------------------------------------------------------------- presença
+    void InitializePresence() {
+#if PRESENCE_ENABLED
+        presence_ = new PresenceSensor(PRESENCE_OUT_GPIO, PRESENCE_UART_NUM, PRESENCE_UART_RX_GPIO,
+                                       PRESENCE_UART_TX_GPIO, PRESENCE_UART_BAUD);
+        presence_->Start();
+        McpServer::GetInstance().AddTool(
+            "self.presence.get_status",
+            "Radar de presença do aparelho: diz se tem alguém por perto, se está se movendo ou "
+            "parado e a distância em centímetros. Use quando não entender bem a fala da pessoa "
+            "(se distancia_cm > 150, peça para ela chegar mais perto) ou quando perguntarem se "
+            "tem alguém na sala.",
+            PropertyList(), [this](const PropertyList&) -> ToolResult {
+                return presence_->ToJson();
+            });
+        xTaskCreate([](void* arg) {
+            static_cast<AutomakazaAudinBoard*>(arg)->PresenceLoop();
+        }, "presenca_ctl", 4096, this, 2, nullptr);
+#endif
+    }
+
+    void Acordar() {
+        if (eyes_ != nullptr) {
+            eyes_->SetSono(0);
+        }
+        if (tela_apagada_ && panel_ != nullptr) {
+            esp_lcd_panel_disp_on_off(panel_, true);
+            tela_apagada_ = false;
+            ESP_LOGI(TAG, "Presença: tela acesa");
+        }
+    }
+
+    void PresenceLoop() {
+        // espera o sensor dar sinal de vida
+        vTaskDelay(pdMS_TO_TICKS(8000));
+        if (!presence_->Detected()) {
+            ESP_LOGW(TAG, "Sensor de presença não respondeu: seguindo sem ele");
+            vTaskDelete(nullptr);
+            return;
+        }
+        ESP_LOGI(TAG, "Sensor de presença ativo");
+        auto& app = Application::GetInstance();
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            auto st = app.GetDeviceState();
+            bool presente = presence_->Get().present;
+            // falar com ela (palavra de ativação, botão) também conta como presença
+            bool interacao = (st == kDeviceStateListening || st == kDeviceStateConnecting ||
+                              st == kDeviceStateWifiConfiguring || st == kDeviceStateUpgrading);
+
+            if (presente || interacao) {
+                if (ausente_s_ >= 60) {
+                    ESP_LOGI(TAG, "Presença: alguém chegou depois de %d s", ausente_s_);
+                }
+                if (ausente_s_ > 0) {
+                    Acordar();
+                }
+                ausente_s_ = 0;
+                if (presente && ausente_enviado_) {
+                    ausente_enviado_ = false;
+                    app.SendPresenceEvent("voltou");
+                }
+                continue;
+            }
+
+            ausente_s_++;
+            if (PRESENCA_SONOLENTA_S > 0 && ausente_s_ == PRESENCA_SONOLENTA_S && eyes_ != nullptr) {
+                ESP_LOGI(TAG, "Presença: ninguém há %d s, sonolenta", ausente_s_);
+                eyes_->SetSono(1);
+            }
+            if (PRESENCA_DORME_S > 0 && ausente_s_ == PRESENCA_DORME_S && eyes_ != nullptr) {
+                ESP_LOGI(TAG, "Presença: ninguém há %d s, dormindo", ausente_s_);
+                eyes_->SetSono(2);
+            }
+            if (PRESENCA_TELA_S > 0 && ausente_s_ == PRESENCA_TELA_S && panel_ != nullptr &&
+                !tela_apagada_) {
+                ESP_LOGI(TAG, "Presença: ninguém há %d s, tela apagada", ausente_s_);
+                esp_lcd_panel_disp_on_off(panel_, false);
+                tela_apagada_ = true;
+            }
+            if (PRESENCA_RADIO_S > 0 && ausente_s_ == PRESENCA_RADIO_S &&
+                st == kDeviceStateSpeaking && !ausente_enviado_) {
+                ESP_LOGI(TAG, "Presença: ninguém há %d s com áudio tocando, avisando o servidor",
+                         ausente_s_);
+                ausente_enviado_ = true;
+                app.SendPresenceEvent("ausente");
+            }
+        }
+    }
+
 public:
     AutomakazaAudinBoard() :
         boot_button_(BOOT_BUTTON_GPIO),
@@ -258,6 +359,7 @@ public:
         InitializeDisplayI2c();
         InitializeOledDisplay();
         InitializeButtons();
+        InitializePresence();
     }
 
     virtual Led* GetLed() override {

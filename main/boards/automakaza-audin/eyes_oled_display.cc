@@ -172,6 +172,22 @@ bool EyesOledDisplay::SelectShapes(const char* emotion) {
         return false;  // não é emoção (ícone de sistema)
     }
 
+    // Sem ninguém por perto há um tempo: o sono vence a emoção
+    if (sono_ == 1) {
+        left = right = {36, 12, 5, 0, 7, 0, 0, false};
+        allow_blink_ = true;
+        allow_look_ = false;
+        pupil_show_ = true;
+        pupil_base_x_ = 0;
+        pupil_base_y_ = 60;  // olhar caído
+        pupil_size_ = 100;
+    } else if (sono_ >= 2) {
+        left = right = {36, 3, 1, 0, 9, 0, 0, false};
+        allow_blink_ = false;
+        allow_look_ = false;
+        pupil_show_ = false;
+    }
+
     shape_[0] = left;
     shape_[1] = right;
     blink_step_ = 0;
@@ -298,6 +314,7 @@ bool EyesOledDisplay::SetEmotion(const char* emotion) {
         if (layer_ != nullptr) {
             known = SelectShapes(emotion);
             if (known) {
+                last_emotion_ = emotion;
                 lv_obj_remove_flag(layer_, LV_OBJ_FLAG_HIDDEN);
                 ApplyShape();
             } else {
@@ -308,6 +325,19 @@ bool EyesOledDisplay::SetEmotion(const char* emotion) {
     // Mantém o OledDisplay em dia (fica por baixo da camada dos olhos).
     bool shown = OledDisplay::SetEmotion(emotion);
     return known || shown;
+}
+
+void EyesOledDisplay::SetSono(int nivel) {
+    DisplayLockGuard lock(this);
+    if (nivel == sono_) {
+        return;
+    }
+    sono_ = nivel;
+    if (layer_ == nullptr || lv_obj_has_flag(layer_, LV_OBJ_FLAG_HIDDEN)) {
+        return;  // há um ícone de sistema na tela; vale na próxima emoção
+    }
+    SelectShapes(last_emotion_.c_str());
+    ApplyShape();
 }
 
 void EyesOledDisplay::SetChatMessage(const char* role, const char* content) {

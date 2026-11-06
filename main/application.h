@@ -113,6 +113,9 @@ public:
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
+    // Automakaza: avisa o servidor do sensor de presença. "voltou" abre a
+    // conversa se estiver ociosa (o servidor decide se fala algo).
+    void SendPresenceEvent(const std::string& evento);
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }

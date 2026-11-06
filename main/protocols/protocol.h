@@ -66,6 +66,8 @@ public:
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);
     virtual void SendMcpMessage(const std::string& message);
+    // Automakaza: evento do sensor de presença ("ausente" / "voltou")
+    void SendPresenceEvent(const std::string& evento, bool abriu);
 
 protected:
     std::function<void(const cJSON* root)> on_incoming_json_;

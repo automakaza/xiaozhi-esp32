@@ -75,4 +75,20 @@
 #define DISPLAY_MIRROR_X true
 #define DISPLAY_MIRROR_Y true
 
+// --- Sensor de presença HLK-LD2401 (alimentar em 3,3 V!) -----------------------
+// 0 = placa sem sensor. Se o sensor não responder nos primeiros segundos, a
+// placa segue como se sempre houvesse alguém (nada dorme nem apaga).
+#define PRESENCE_ENABLED        1
+#define PRESENCE_OUT_GPIO       GPIO_NUM_4    // OUT do sensor
+#define PRESENCE_UART_NUM       UART_NUM_1
+#define PRESENCE_UART_RX_GPIO   GPIO_NUM_6    // TX do sensor
+#define PRESENCE_UART_TX_GPIO   GPIO_NUM_5    // RX do sensor
+#define PRESENCE_UART_BAUD      256000
+
+// Tempos sem ninguém (segundos). 0 = desliga aquela etapa.
+#define PRESENCA_SONOLENTA_S    120   // olhos sonolentos
+#define PRESENCA_DORME_S        300   // olhos fechados
+#define PRESENCA_TELA_S         600   // tela apaga
+#define PRESENCA_RADIO_S        900   // pergunta se tem alguém e, sem resposta, desliga a rádio
+
 #endif // _BOARD_CONFIG_H_

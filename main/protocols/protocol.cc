@@ -105,6 +105,13 @@ void Protocol::SendMcpMessage(const std::string& payload) {
     SendText(message);
 }
 
+void Protocol::SendPresenceEvent(const std::string& evento, bool abriu) {
+    std::string message = "{\"session_id\":\"" + session_id_ +
+                          "\",\"type\":\"presenca\",\"evento\":\"" + evento +
+                          "\",\"abriu\":" + (abriu ? "true" : "false") + "}";
+    SendText(message);
+}
+
 bool Protocol::IsTimeout() const {
     const int kTimeoutSeconds = 120;
     auto now = std::chrono::steady_clock::now();

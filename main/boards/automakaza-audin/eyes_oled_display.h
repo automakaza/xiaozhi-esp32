@@ -27,6 +27,10 @@ public:
     virtual void SetChatMessage(const char* role, const char* content) override;
     virtual void RemoveChatMessage(const char* role, const char* content) override;
 
+    // Sono por falta de gente (sensor de presença): 0 = acordada,
+    // 1 = sonolenta (pálpebras meio fechadas), 2 = dormindo (olhos fechados).
+    void SetSono(int nivel);
+
 private:
     struct EyeShape {
         int w;          // largura (px)
@@ -49,6 +53,8 @@ private:
     lv_timer_t* timer_ = nullptr;
 
     EyeShape shape_[2] = {};
+    int sono_ = 0;
+    std::string last_emotion_ = "neutral";
     bool text_visible_ = false;
     bool allow_blink_ = true;
     bool allow_look_ = true;
