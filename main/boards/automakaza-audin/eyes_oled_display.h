@@ -54,6 +54,10 @@ private:
 
     EyeShape shape_[2] = {};
     int sono_ = 0;
+    int acordar_fase_ = 0;          // reação ao acordar: susto -> olha para os lados
+    uint32_t acordar_ms_ = 0;
+    uint32_t piscadinha_ms_ = 0;        // piscadinha é passageira: depois volta
+    std::string piscadinha_volta_ = "neutral";
     std::string last_emotion_ = "neutral";
     bool text_visible_ = false;
     bool allow_blink_ = true;

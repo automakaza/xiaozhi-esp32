@@ -312,8 +312,15 @@ bool EyesOledDisplay::SetEmotion(const char* emotion) {
     {
         DisplayLockGuard lock(this);
         if (layer_ != nullptr) {
+            std::string anterior = last_emotion_;
             known = SelectShapes(emotion);
             if (known) {
+                piscadinha_ms_ = 0;
+                if (strcmp(emotion, "winking") == 0) {
+                    // a piscadinha dura um instante e o olho volta a abrir
+                    piscadinha_ms_ = lv_tick_get() + 1200;
+                    piscadinha_volta_ = (anterior == "winking") ? "neutral" : anterior;
+                }
                 last_emotion_ = emotion;
                 lv_obj_remove_flag(layer_, LV_OBJ_FLAG_HIDDEN);
                 ApplyShape();
@@ -332,11 +339,22 @@ void EyesOledDisplay::SetSono(int nivel) {
     if (nivel == sono_) {
         return;
     }
+    bool acordou = (sono_ > 0 && nivel == 0);
     sono_ = nivel;
+    acordar_fase_ = 0;
     if (layer_ == nullptr || lv_obj_has_flag(layer_, LV_OBJ_FLAG_HIDDEN)) {
         return;  // há um ícone de sistema na tela; vale na próxima emoção
     }
-    SelectShapes(last_emotion_.c_str());
+    if (acordou) {
+        // alguém chegou: arregala os olhos e depois olha em volta
+        SelectShapes("surprised");
+        look_dx_ = look_dy_ = 0;
+        pupil_tx_ = pupil_ty_ = 0;
+        acordar_fase_ = 1;
+        acordar_ms_ = lv_tick_get() + 900;
+    } else {
+        SelectShapes(last_emotion_.c_str());
+    }
     ApplyShape();
 }
 
@@ -375,6 +393,35 @@ void EyesOledDisplay::OnTimer() {
     }
     uint32_t now = lv_tick_get();
     bool changed = false;
+
+    // Fim da piscadinha: volta à emoção de antes
+    if (piscadinha_ms_ != 0 && now >= piscadinha_ms_) {
+        piscadinha_ms_ = 0;
+        last_emotion_ = piscadinha_volta_;
+        SelectShapes(last_emotion_.c_str());
+        changed = true;
+    }
+
+    // Reação ao acordar: 1 = susto, 2 = olha para um lado, 3 = para o outro, 4 = frente
+    if (acordar_fase_ > 0 && now >= acordar_ms_) {
+        if (acordar_fase_ == 1) {
+            SelectShapes(last_emotion_.c_str());
+            pupil_tx_ = -100;
+            pupil_ty_ = 0;
+        } else if (acordar_fase_ == 2) {
+            pupil_tx_ = 100;
+        } else {
+            pupil_tx_ = pupil_base_x_;
+            pupil_ty_ = pupil_base_y_;
+        }
+        look_dx_ = (pupil_tx_ - pupil_base_x_) * 4 / 100;
+        look_dy_ = (pupil_ty_ - pupil_base_y_) * 3 / 100;
+        acordar_fase_ = (acordar_fase_ >= 3) ? 0 : acordar_fase_ + 1;
+        acordar_ms_ = now + 650;
+        next_look_ms_ = now + 2500;
+        blink_step_ = 0;
+        changed = true;
+    }
 
     if (blink_step_ > 0) {
         blink_step_++;
