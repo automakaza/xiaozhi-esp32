@@ -52,8 +52,8 @@
 #define BUILTIN_LED_GPIO         GPIO_NUM_21   // LED verde da placa principal
 
 // --- Display OLED I2C (conector lateral) ---------------------------------------
-#define DISPLAY_SDA_PIN GPIO_NUM_5
-#define DISPLAY_SCL_PIN GPIO_NUM_4
+#define DISPLAY_SDA_PIN GPIO_NUM_17
+#define DISPLAY_SCL_PIN GPIO_NUM_18
 #define DISPLAY_I2C_ADDR 0x3C
 #define DISPLAY_WIDTH   128
 

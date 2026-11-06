@@ -15,7 +15,7 @@ microfones de eletreto, três botões e conector para display.
 | Botão BOOT do módulo | 0 |
 | Botões esquerdo / meio / direito | 12 / 11 / 13 |
 | LED verde | 21 |
-| Display OLED I2C (SDA / SCL), endereço 0x3C | 5 / 4 |
+| Display OLED I2C (SDA / SCL), endereço 0x3C | 17 / 18 |
 
 Observações:
 
