@@ -118,7 +118,7 @@ public:
     void SendPresenceEvent(const std::string& evento);
     // Automakaza: lembrete vencido. Abre a conversa se precisar; sem servidor,
     // toca um bipe e mostra o texto na tela.
-    void SendReminderEvent(const std::string& id, const std::string& texto);
+    void SendReminderEvent(const std::string& id, const std::string& texto, bool atrasado = false);
     // Automakaza: mensagens JSON de tipos que o firmware original não conhece
     void SetCustomJsonHandler(std::function<void(const std::string&, const std::string&)> h) {
         custom_json_handler_ = std::move(h);

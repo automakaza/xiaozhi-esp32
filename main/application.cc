@@ -1515,8 +1515,9 @@ static std::string JsonEscape(const std::string& in) {
     return out;
 }
 
-void Application::SendReminderEvent(const std::string& id, const std::string& texto) {
-    std::string campos = "\"id\":\"" + JsonEscape(id) + "\",\"texto\":\"" + JsonEscape(texto) + "\"";
+void Application::SendReminderEvent(const std::string& id, const std::string& texto, bool atrasado) {
+    std::string campos = "\"id\":\"" + JsonEscape(id) + "\",\"texto\":\"" + JsonEscape(texto) +
+                         "\",\"atrasado\":" + (atrasado ? "true" : "false");
     Schedule([this, campos, texto]() {
         auto avisar_local = [this, texto]() {
             // sem servidor: pelo menos bipe e texto na tela

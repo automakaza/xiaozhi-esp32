@@ -12,6 +12,7 @@
 // ============================================================================
 
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -20,6 +21,9 @@ class ReminderManager {
 public:
     void Start();
     void SetFromJson(const std::string& json);
+    // Diz se tem alguém por perto (radar). Sem ninguém, o lembrete espera a
+    // pessoa chegar e então é avisado como "enquanto você estava fora...".
+    void SetPresenceCheck(std::function<bool()> f) { tem_alguem_ = std::move(f); }
 
 private:
     struct Item {
@@ -30,6 +34,8 @@ private:
     };
     std::mutex mutex_;
     std::vector<Item> itens_;
+    std::vector<Item> esperando_;   // venceram sem ninguém por perto
+    std::function<bool()> tem_alguem_;
 
     void Load();
     void Save();

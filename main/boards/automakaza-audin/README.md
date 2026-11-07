@@ -50,6 +50,9 @@ Observações:
   de tomar o remédio") e a placa guarda na memória (`reminder_manager.cc`). Na
   hora, ela acorda sozinha e o servidor fala o aviso; sem servidor, toca um bipe e
   mostra o texto na tela. Até 20 lembretes, com repetição diária ou semanal.
+  Depois do aviso ela escuta 8 s; sem resposta, repete a cada minuto (até 5
+  vezes) e depois deixa o lembrete na tela. Se o radar não vê ninguém na hora,
+  ela guarda o aviso e fala quando alguém chegar ("enquanto você estava fora...").
 
 ## Botões
 

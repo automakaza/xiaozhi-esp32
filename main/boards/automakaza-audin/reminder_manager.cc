@@ -16,6 +16,7 @@ namespace {
 constexpr size_t kMaxItens = 20;
 constexpr int64_t kRelogioValido = 1700000000;  // relógio já acertado pela OTA
 constexpr int64_t kAtrasoMax = 30 * 60;          // atrasou mais que isso (placa desligada): descarta
+constexpr int64_t kEsperaMax = 12 * 3600;        // sem ninguém: guarda o aviso por até 12 h
 }  // namespace
 
 void ReminderManager::Start() {
@@ -134,9 +135,39 @@ void ReminderManager::Loop() {
                 Save();
             }
         }
+        bool alguem = !tem_alguem_ || tem_alguem_();
         for (auto& item : vencidos) {
+            if (!alguem) {
+                ESP_LOGI(TAG, "Lembrete sem ninguém por perto, esperando alguém chegar: %s",
+                         item.txt.c_str());
+                item.t = agora;  // marca quando venceu
+                std::lock_guard<std::mutex> lock(mutex_);
+                esperando_.push_back(item);
+                continue;
+            }
             ESP_LOGI(TAG, "Hora do lembrete: %s", item.txt.c_str());
-            Application::GetInstance().SendReminderEvent(item.id, item.txt);
+            Application::GetInstance().SendReminderEvent(item.id, item.txt, false);
+        }
+
+        // Alguém chegou: avisa os lembretes que venceram enquanto estava fora
+        std::vector<Item> chegou;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (auto it = esperando_.begin(); it != esperando_.end();) {
+                if (agora - it->t > kEsperaMax) {
+                    it = esperando_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            if (alguem && !esperando_.empty()) {
+                chegou.swap(esperando_);
+            }
+        }
+        for (auto& item : chegou) {
+            ESP_LOGI(TAG, "Alguém chegou, avisando lembrete atrasado: %s", item.txt.c_str());
+            Application::GetInstance().SendReminderEvent(item.id, item.txt, true);
+            vTaskDelay(pdMS_TO_TICKS(15000));  // um de cada vez
         }
     }
 }

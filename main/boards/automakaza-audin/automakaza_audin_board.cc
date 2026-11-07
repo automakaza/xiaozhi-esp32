@@ -363,11 +363,30 @@ public:
         InitializeButtons();
         InitializePresence();
         // Lembretes: o servidor manda a lista; a placa guarda e dispara na hora
+        lembretes_.SetPresenceCheck([this]() {
+            // sem sensor (ou sem resposta dele): considera que tem gente
+            if (presence_ == nullptr || !presence_->Detected()) {
+                return true;
+            }
+            return presence_->Get().present;
+        });
         lembretes_.Start();
         Application::GetInstance().SetCustomJsonHandler(
             [this](const std::string& tipo, const std::string& json) {
                 if (tipo == "lembretes") {
                     lembretes_.SetFromJson(json);
+                } else if (tipo == "lembrete_pendente" && display_ != nullptr) {
+                    // ninguém respondeu aos avisos: deixa o lembrete na tela
+                    std::string texto;
+                    auto p = json.find("\"texto\":\"");
+                    if (p != std::string::npos) {
+                        p += 9;
+                        auto f = json.find('"', p);
+                        texto = json.substr(p, f == std::string::npos ? std::string::npos : f - p);
+                    }
+                    Application::GetInstance().Schedule([this, texto]() {
+                        display_->SetChatMessage("system", ("Lembrete: " + texto).c_str());
+                    });
                 }
             });
     }
