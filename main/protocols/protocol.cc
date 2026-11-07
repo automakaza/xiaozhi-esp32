@@ -112,6 +112,15 @@ void Protocol::SendPresenceEvent(const std::string& evento, bool abriu) {
     SendText(message);
 }
 
+void Protocol::SendCustomEvent(const std::string& tipo, const std::string& campos, bool abriu) {
+    std::string message = "{\"session_id\":\"" + session_id_ + "\",\"type\":\"" + tipo + "\"";
+    if (!campos.empty()) {
+        message += "," + campos;
+    }
+    message += std::string(",\"abriu\":") + (abriu ? "true" : "false") + "}";
+    SendText(message);
+}
+
 bool Protocol::IsTimeout() const {
     const int kTimeoutSeconds = 120;
     auto now = std::chrono::steady_clock::now();

@@ -68,6 +68,8 @@ public:
     virtual void SendMcpMessage(const std::string& message);
     // Automakaza: evento do sensor de presença ("ausente" / "voltou")
     void SendPresenceEvent(const std::string& evento, bool abriu);
+    // Automakaza: evento genérico {"type":tipo, <campos>, "abriu":bool}
+    void SendCustomEvent(const std::string& tipo, const std::string& campos, bool abriu);
 
 protected:
     std::function<void(const cJSON* root)> on_incoming_json_;

@@ -116,6 +116,13 @@ public:
     // Automakaza: avisa o servidor do sensor de presença. "voltou" abre a
     // conversa se estiver ociosa (o servidor decide se fala algo).
     void SendPresenceEvent(const std::string& evento);
+    // Automakaza: lembrete vencido. Abre a conversa se precisar; sem servidor,
+    // toca um bipe e mostra o texto na tela.
+    void SendReminderEvent(const std::string& id, const std::string& texto);
+    // Automakaza: mensagens JSON de tipos que o firmware original não conhece
+    void SetCustomJsonHandler(std::function<void(const std::string&, const std::string&)> h) {
+        custom_json_handler_ = std::move(h);
+    }
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
@@ -160,6 +167,7 @@ private:
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     int clock_ticks_ = 0;
     // Automakaza: reabre a conversa sozinha se o Wi-Fi cair enquanto fala/toca rádio
+    std::function<void(const std::string&, const std::string&)> custom_json_handler_;
     bool reabrir_apos_queda_ = false;
     int64_t queda_us_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;

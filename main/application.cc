@@ -763,6 +763,12 @@ void Application::InitializeProtocol() {
                 ESP_LOGW(TAG, "Invalid custom message format: missing payload");
             }
 #endif
+        } else if (custom_json_handler_) {
+            char* texto = cJSON_PrintUnformatted(root);
+            if (texto) {
+                custom_json_handler_(type->valuestring, texto);
+                cJSON_free(texto);
+            }
         } else {
             ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
         }
@@ -1489,6 +1495,57 @@ void Application::SendPresenceEvent(const std::string& evento) {
             ContinueOpenAudioChannel(GetDefaultListeningMode());
             if (protocol_ && protocol_->IsAudioChannelOpened()) {
                 protocol_->SendPresenceEvent(evento, true);
+            }
+        });
+    });
+}
+
+static std::string JsonEscape(const std::string& in) {
+    std::string out;
+    for (char c : in) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += c;
+        } else if (c == '\n' || c == '\r') {
+            out += ' ';
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+void Application::SendReminderEvent(const std::string& id, const std::string& texto) {
+    std::string campos = "\"id\":\"" + JsonEscape(id) + "\",\"texto\":\"" + JsonEscape(texto) + "\"";
+    Schedule([this, campos, texto]() {
+        auto avisar_local = [this, texto]() {
+            // sem servidor: pelo menos bipe e texto na tela
+            ESP_LOGW(TAG, "Reminder without server: %s", texto.c_str());
+            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            auto display = Board::GetInstance().GetDisplay();
+            display->SetChatMessage("system", ("Lembrete: " + texto).c_str());
+        };
+        if (!protocol_) {
+            avisar_local();
+            return;
+        }
+        if (protocol_->IsAudioChannelOpened()) {
+            protocol_->SendCustomEvent("lembrete", campos, false);
+            return;
+        }
+        auto st = GetDeviceState();
+        if (st != kDeviceStateIdle) {
+            avisar_local();
+            return;
+        }
+        ESP_LOGI(TAG, "Reminder due: opening audio channel");
+        SetDeviceState(kDeviceStateConnecting);
+        Schedule([this, campos, avisar_local]() {
+            ContinueOpenAudioChannel(GetDefaultListeningMode());
+            if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                protocol_->SendCustomEvent("lembrete", campos, true);
+            } else {
+                avisar_local();
             }
         });
     });

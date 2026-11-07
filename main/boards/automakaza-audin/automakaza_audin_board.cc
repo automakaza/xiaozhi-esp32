@@ -20,6 +20,7 @@
 #include "display/oled_display.h"
 #include "eyes_oled_display.h"
 #include "presence_sensor.h"
+#include "reminder_manager.h"
 #include "mcp_server.h"
 #include "application.h"
 #include "button.h"
@@ -119,6 +120,7 @@ private:
     Display* display_ = nullptr;
     EyesOledDisplay* eyes_ = nullptr;
     PresenceSensor* presence_ = nullptr;
+    ReminderManager lembretes_;
     int ausente_s_ = 0;          // segundos sem ninguém
     bool tela_apagada_ = false;
     bool ausente_enviado_ = false;  // avisou o servidor (rádio) e espera a volta
@@ -360,6 +362,14 @@ public:
         InitializeOledDisplay();
         InitializeButtons();
         InitializePresence();
+        // Lembretes: o servidor manda a lista; a placa guarda e dispara na hora
+        lembretes_.Start();
+        Application::GetInstance().SetCustomJsonHandler(
+            [this](const std::string& tipo, const std::string& json) {
+                if (tipo == "lembretes") {
+                    lembretes_.SetFromJson(json);
+                }
+            });
     }
 
     virtual Led* GetLed() override {

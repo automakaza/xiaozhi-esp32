@@ -39,12 +39,17 @@ Observações:
   então a assistente não responde ao próprio nome e escuta o pedido em seguida.
 
 - **Sensor de presença HLK-LD2401** (alimentar em **3,3 V**): sem ninguém por
-  perto, os olhos ficam sonolentos (2 min), fecham (5 min), a tela apaga
-  (10 min) e, se a rádio estiver tocando, ela pergunta se tem alguém e desliga
-  sem resposta (15 min). Quando alguém volta, ela acorda na hora e oferece
+  perto, os olhos ficam sonolentos (1 min), fecham (3 min), a tela apaga
+  (5 min) e, se a rádio estiver tocando, ela pergunta se tem alguém e desliga
+  sem resposta (10 min). Quando alguém volta, ela acorda na hora e oferece
   voltar à rádio. Tempos em `PRESENCA_*_S` no `config.h` (0 = desliga a etapa;
   `PRESENCE_ENABLED 0` = sem sensor). A IA ganha a ferramenta
   `self.presence.get_status` (tem alguém, movendo/parado, distância em cm).
+
+- **Lembretes**: o servidor manda a lista (criada por voz: "me lembra amanhã às 8
+  de tomar o remédio") e a placa guarda na memória (`reminder_manager.cc`). Na
+  hora, ela acorda sozinha e o servidor fala o aviso; sem servidor, toca um bipe e
+  mostra o texto na tela. Até 20 lembretes, com repetição diária ou semanal.
 
 ## Botões
 
