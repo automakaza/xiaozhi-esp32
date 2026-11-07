@@ -86,9 +86,9 @@
 #define PRESENCE_UART_BAUD      256000
 
 // Tempos sem ninguém (segundos). 0 = desliga aquela etapa.
-#define PRESENCA_SONOLENTA_S    120   // olhos sonolentos
-#define PRESENCA_DORME_S        300   // olhos fechados
-#define PRESENCA_TELA_S         600   // tela apaga
-#define PRESENCA_RADIO_S        900   // pergunta se tem alguém e, sem resposta, desliga a rádio
+#define PRESENCA_SONOLENTA_S    60    // olhos sonolentos
+#define PRESENCA_DORME_S        180   // olhos fechados
+#define PRESENCA_TELA_S         300   // tela apaga
+#define PRESENCA_RADIO_S        600   // pergunta se tem alguém e, sem resposta, desliga a rádio
 
 #endif // _BOARD_CONFIG_H_
