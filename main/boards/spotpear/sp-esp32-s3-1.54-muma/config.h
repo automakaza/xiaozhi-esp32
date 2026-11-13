@@ -19,6 +19,10 @@
 #define AUDIO_CODEC_I2C_SCL_PIN  GPIO_NUM_14
 #define AUDIO_CODEC_ES8311_ADDR  ES8311_CODEC_DEFAULT_ADDR
 
+// Sophia: ganho do microfone em dB (padrão do Xiaozhi = 30). Mais alto ouve
+// de mais longe, mas também capta mais ruído. Teste 36 e 42.
+#define AUDIO_MIC_GAIN_DB        36
+
 #define BUILTIN_LED_GPIO        GPIO_NUM_48
 #define BOOT_BUTTON_GPIO        GPIO_NUM_0
 

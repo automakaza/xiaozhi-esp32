@@ -246,12 +246,16 @@ std::vector<std::string> SdMusicPlayer::ScanFiles() {
 // "/sdcard/musicas/caminhada/Asa Branca.ogg" -> "caminhada/Asa Branca"
 std::string SdMusicPlayer::DisplayName(const std::string& path) {
     std::string name = path;
-    const std::string prefixes[] = {std::string(kMountPoint) + "/musicas/",
-                                    std::string(kMountPoint) + "/"};
-    for (const auto& p : prefixes) {
-        if (name.compare(0, p.size(), p) == 0) {
-            name = name.substr(p.size());
-            break;
+    const std::string raiz = std::string(kMountPoint) + "/";
+    if (name.compare(0, raiz.size(), raiz) == 0) {
+        name = name.substr(raiz.size());
+    }
+    // pasta "musicas" (Musicas, MUSICAS, Músicas...) não faz parte do nome
+    auto barra = name.find('/');
+    if (barra != std::string::npos) {
+        std::string pasta = Normalize(name.substr(0, barra));
+        if (pasta == "musicas" || pasta == "musica" || pasta == "music") {
+            name = name.substr(barra + 1);
         }
     }
     auto dot = name.find_last_of('.');
@@ -262,17 +266,143 @@ std::string SdMusicPlayer::DisplayName(const std::string& path) {
 }
 
 // Busca pelo nome da música ou da pasta (playlist), sem diferenciar maiúsculas.
+// Minúsculas, sem acento e com '_', '-', '.' virando espaço: "Pop_Rock" ->
+// "pop rock", "Flávio José" -> "flavio jose".
+std::string SdMusicPlayer::Normalize(const std::string& in) {
+    static const struct { const char* utf8; char ascii; } kAcentos[] = {
+        {"á", 'a'}, {"à", 'a'}, {"â", 'a'}, {"ã", 'a'}, {"ä", 'a'}, {"Á", 'a'}, {"À", 'a'},
+        {"Â", 'a'}, {"Ã", 'a'}, {"é", 'e'}, {"ê", 'e'}, {"è", 'e'}, {"É", 'e'}, {"Ê", 'e'},
+        {"í", 'i'}, {"Í", 'i'}, {"ó", 'o'}, {"ô", 'o'}, {"õ", 'o'}, {"ö", 'o'}, {"Ó", 'o'},
+        {"Ô", 'o'}, {"Õ", 'o'}, {"ú", 'u'}, {"ü", 'u'}, {"Ú", 'u'}, {"ç", 'c'}, {"Ç", 'c'},
+        {"ñ", 'n'}, {"Ñ", 'n'},
+    };
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size();) {
+        unsigned char c = in[i];
+        if (c < 128) {
+            char ch = (char)std::tolower(c);
+            if (ch == '_' || ch == '-' || ch == '.' || ch == '(' || ch == ')' || ch == '[' ||
+                ch == ']' || ch == '{' || ch == '}' || ch == ',' || ch == '/') {
+                ch = ' ';
+            }
+            if (!(ch == ' ' && (out.empty() || out.back() == ' '))) {
+                out.push_back(ch);
+            }
+            i++;
+            continue;
+        }
+        bool trocou = false;
+        for (const auto& a : kAcentos) {
+            size_t n = strlen(a.utf8);
+            if (in.compare(i, n, a.utf8) == 0) {
+                out.push_back(a.ascii);
+                i += n;
+                trocou = true;
+                break;
+            }
+        }
+        if (!trocou) {
+            out.push_back((char)c);
+            i++;
+        }
+    }
+    while (!out.empty() && out.back() == ' ') {
+        out.pop_back();
+    }
+    return out;
+}
+
+static std::vector<std::string> Palavras(const std::string& s) {
+    std::vector<std::string> out;
+    size_t i = 0;
+    while (i < s.size()) {
+        size_t j = s.find(' ', i);
+        if (j == std::string::npos) j = s.size();
+        if (j > i) out.push_back(s.substr(i, j - i));
+        i = j + 1;
+    }
+    return out;
+}
+
+// A palavra pedida "bate" com o nome se aparece nele, ou se começa com uma
+// palavra do nome (ASR: "rocking" -> "rock", "remixes" -> "remix").
+static bool PalavraBate(const std::string& palavra, const std::vector<std::string>& nome,
+                        const std::string& nome_inteiro) {
+    if (nome_inteiro.find(palavra) != std::string::npos) {
+        return true;
+    }
+    for (const auto& w : nome) {
+        if (w.size() >= 3 && palavra.compare(0, w.size(), w) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Busca pelo nome da música ou da pasta (playlist). Primeiro a frase inteira;
+// se não achar nada, aceita quando todas as palavras pedidas batem.
 std::vector<std::string> SdMusicPlayer::Filter(const std::vector<std::string>& files,
                                                const std::string& termo) {
-    if (termo.empty()) {
+    std::string t = Normalize(termo);
+    if (t.empty()) {
         return files;
     }
-    std::string t = Lower(termo);
     std::vector<std::string> out;
     for (const auto& f : files) {
-        if (Lower(DisplayName(f)).find(t) != std::string::npos) {
+        if (Normalize(DisplayName(f)).find(t) != std::string::npos) {
             out.push_back(f);
         }
+    }
+    if (!out.empty()) {
+        return out;
+    }
+    auto pedidas = Palavras(t);
+    for (const auto& f : files) {
+        std::string n = Normalize(DisplayName(f));
+        auto palavras_nome = Palavras(n);
+        bool todas = true;
+        for (const auto& p : pedidas) {
+            if (!PalavraBate(p, palavras_nome, n)) {
+                todas = false;
+                break;
+            }
+        }
+        if (todas) {
+            out.push_back(f);
+        }
+    }
+    return out;
+}
+
+// Pastas (playlists) com a quantidade de músicas de cada uma.
+std::string SdMusicPlayer::PlaylistsSummary(const std::vector<std::string>& files) {
+    std::vector<std::pair<std::string, int>> pastas;
+    int soltas = 0;
+    for (const auto& f : files) {
+        std::string n = DisplayName(f);
+        auto barra = n.find('/');
+        if (barra == std::string::npos) {
+            soltas++;
+            continue;
+        }
+        std::string pasta = n.substr(0, barra);
+        auto it = std::find_if(pastas.begin(), pastas.end(),
+                               [&pasta](const auto& p) { return p.first == pasta; });
+        if (it == pastas.end()) {
+            pastas.push_back({pasta, 1});
+        } else {
+            it->second++;
+        }
+    }
+    std::string out;
+    for (const auto& p : pastas) {
+        if (!out.empty()) out += "; ";
+        out += p.first + " (" + std::to_string(p.second) + ")";
+    }
+    if (soltas > 0) {
+        if (!out.empty()) out += "; ";
+        out += "músicas avulsas (" + std::to_string(soltas) + ")";
     }
     return out;
 }
@@ -286,9 +416,11 @@ void SdMusicPlayer::RegisterTools() {
 
     mcp.AddTool(
         "self.music.list",
-        "Lista as músicas do cartão SD do aparelho (nome e pasta/playlist). Use quando "
-        "perguntarem quais músicas tem, ou para achar o nome certo antes de tocar.",
-        PropertyList(), [this](const PropertyList&) -> ToolResult {
+        "Músicas do cartão SD do aparelho. Sem 'busca': lista as playlists (pastas) com a "
+        "quantidade de músicas. Com 'busca' (nome de playlist, artista ou música): lista os "
+        "nomes das músicas que batem. Use quando perguntarem o que tem no cartão.",
+        PropertyList({Property("busca", kPropertyTypeString, std::string(""))}),
+        [this](const PropertyList& props) -> ToolResult {
             if (!EnsureMounted()) {
                 return std::unexpected<std::string>(kSemCartao);
             }
@@ -296,8 +428,21 @@ void SdMusicPlayer::RegisterTools() {
             if (files.empty()) {
                 return std::string("O cartão SD não tem músicas (MP3, WAV, FLAC, M4A, AAC ou OGG).");
             }
+            std::string busca = props["busca"].value<std::string>();
+            if (busca.empty()) {
+                return std::to_string(files.size()) +
+                       " músicas no cartão. Playlists: " + PlaylistsSummary(files);
+            }
+            auto achadas = Filter(files, busca);
+            if (achadas.empty()) {
+                return "Nada com '" + busca + "'. Playlists: " + PlaylistsSummary(files);
+            }
             cJSON* arr = cJSON_CreateArray();
-            for (const auto& f : files) {
+            size_t n = 0;
+            for (const auto& f : achadas) {
+                if (++n > 60) {
+                    break;  // não afoga o modelo com listas enormes
+                }
                 cJSON_AddItemToArray(arr, cJSON_CreateString(DisplayName(f).c_str()));
             }
             return arr;
@@ -306,6 +451,8 @@ void SdMusicPlayer::RegisterTools() {
     mcp.AddTool(
         "self.music.play",
         "Toca músicas do cartão SD do próprio aparelho (não é rádio nem internet). "
+        "IMPORTANTE: se uma rádio estiver tocando, chame parar_radio ANTES desta ferramenta, "
+        "senão a rádio volta e cobre a música. "
         "'busca' é parte do nome da música ou da pasta/playlist; vazio toca todas. "
         "'aleatorio' embaralha. A música começa assim que você terminar de responder, "
         "então responda bem curto (ex.: 'Tocando!'). Se te chamarem durante a música ela "
@@ -321,10 +468,14 @@ void SdMusicPlayer::RegisterTools() {
             }
             auto files = Filter(ScanFiles(), busca);
             if (files.empty()) {
-                return std::unexpected<std::string>(
-                    busca.empty() ? "Não há músicas no cartão SD."
-                                  : "Nenhuma música encontrada com '" + busca +
-                                        "'. Use self.music.list para ver os nomes.");
+                auto todas = ScanFiles();
+                if (todas.empty()) {
+                    return std::string("Não há músicas no cartão SD. Nada foi tocado.");
+                }
+                // Resposta normal (não erro), para a assistente oferecer as opções
+                return "Não encontrei '" + busca + "' no cartão; nada foi tocado. Playlists "
+                       "disponíveis: " + PlaylistsSummary(todas) +
+                       ". Pergunte qual a pessoa quer.";
             }
             if (aleatorio) {
                 for (size_t i = files.size() - 1; i > 0; i--) {

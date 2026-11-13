@@ -313,6 +313,13 @@ public:
         static Es8311AudioCodec audio_codec(codec_i2c_bus_, I2C_NUM_0, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN,
             AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR);
+        // Sophia: microfone mais sensível que o padrão (30 dB) para ouvir a
+        // palavra de ativação de mais longe. Vale na próxima abertura do codec.
+        static bool ganho_ajustado = false;
+        if (!ganho_ajustado) {
+            audio_codec.SetInputGain(AUDIO_MIC_GAIN_DB);
+            ganho_ajustado = true;
+        }
         return &audio_codec;
     }
 

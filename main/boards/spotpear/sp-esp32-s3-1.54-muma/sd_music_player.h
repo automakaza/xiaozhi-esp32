@@ -53,6 +53,8 @@ private:
     std::vector<std::string> Filter(const std::vector<std::string>& files, const std::string& termo);
     static std::string DisplayName(const std::string& path);
     static std::string Lower(const std::string& s);
+    static std::string Normalize(const std::string& s);
+    std::string PlaylistsSummary(const std::vector<std::string>& files);
 
     enum Result { kFinished, kSkipped, kStopped };
 
