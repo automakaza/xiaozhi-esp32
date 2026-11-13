@@ -143,6 +143,10 @@ public:
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
+    // Automakaza: PCM mono já na taxa de saída do codec, direto para a fila de
+    // reprodução (players locais, ex.: músicas do cartão SD). Retorna false se a
+    // fila foi limpa (ResetDecoder) ou o serviço parou enquanto esperava vaga.
+    bool PushPcmToPlaybackQueue(std::vector<int16_t>&& pcm, bool wait = true);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
