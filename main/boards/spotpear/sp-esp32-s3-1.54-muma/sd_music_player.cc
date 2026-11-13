@@ -17,6 +17,8 @@
 #include <cJSON.h>
 #include <driver/gpio.h>
 #include <driver/sdmmc_host.h>
+#include <driver/sdspi_host.h>
+#include <driver/spi_common.h>
 #include <esp_log.h>
 #include <esp_random.h>
 #include <esp_vfs_fat.h>
@@ -36,9 +38,22 @@ static const size_t kReadChunk = 4096;
 // Cartão SD
 // ----------------------------------------------------------------------------
 
-bool SdMusicPlayer::Mount(int clk, int cmd, int d0, int d3) {
-    // Em modo SD de 1 bit o D3 tem que ficar em nível alto (em baixo o cartão
-    // entra em modo SPI no reset).
+static esp_vfs_fat_sdmmc_mount_config_t MountConfig() {
+    esp_vfs_fat_sdmmc_mount_config_t cfg = {};
+    cfg.format_if_mount_failed = false;
+    cfg.max_files = 4;
+    cfg.allocation_unit_size = 16 * 1024;
+    return cfg;
+}
+
+static void LogCard(const char* modo, sdmmc_card_t* card) {
+    ESP_LOGI(TAG, "Cartão SD montado (%s): %s, %llu MB", modo, card->cid.name,
+             ((unsigned long long)card->csd.capacity) * card->csd.sector_size / (1024 * 1024));
+}
+
+// 1ª tentativa: SDMMC de 1 bit (mais rápido). Em modo SD o D3 tem que ficar
+// em nível alto (em baixo o cartão entra em modo SPI no reset).
+static bool MountSdmmc(int clk, int cmd, int d0, int d3) {
     if (d3 >= 0) {
         gpio_config_t io = {};
         io.pin_bit_mask = 1ULL << d3;
@@ -50,42 +65,113 @@ bool SdMusicPlayer::Mount(int clk, int cmd, int d0, int d3) {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = SDMMC_FREQ_DEFAULT;
 
-    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
-    slot.width = 1;
+    // Preenchido à mão (a macro padrão usa inicializadores que o C++ não aceita bem)
+    sdmmc_slot_config_t slot = {};
     slot.clk = (gpio_num_t)clk;
     slot.cmd = (gpio_num_t)cmd;
     slot.d0 = (gpio_num_t)d0;
-    slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+    slot.d1 = GPIO_NUM_NC;
+    slot.d2 = GPIO_NUM_NC;
+    slot.d3 = GPIO_NUM_NC;
+    slot.d4 = GPIO_NUM_NC;
+    slot.d5 = GPIO_NUM_NC;
+    slot.d6 = GPIO_NUM_NC;
+    slot.d7 = GPIO_NUM_NC;
+    slot.cd = SDMMC_SLOT_NO_CD;
+    slot.wp = SDMMC_SLOT_NO_WP;
+    slot.width = 1;
+    slot.flags = SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-    esp_vfs_fat_sdmmc_mount_config_t mount_cfg = {};
-    mount_cfg.format_if_mount_failed = false;
-    mount_cfg.max_files = 4;
-    mount_cfg.allocation_unit_size = 16 * 1024;
-
+    auto mount_cfg = MountConfig();
     sdmmc_card_t* card = nullptr;
     esp_err_t err = esp_vfs_fat_sdmmc_mount(kMountPoint, &host, &slot, &mount_cfg, &card);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Sem cartão SD (ou cartão não FAT32): %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "SDMMC 1 bit falhou: %s", esp_err_to_name(err));
         return false;
     }
-    ESP_LOGI(TAG, "Cartão SD montado: %s, %llu MB", card->cid.name,
-             ((unsigned long long)card->csd.capacity) * card->csd.sector_size / (1024 * 1024));
+    LogCard("SDMMC 1 bit", card);
     return true;
 }
 
-void SdMusicPlayer::Initialize(int clk, int cmd, int d0, int d3) {
-    mounted_ = Mount(clk, cmd, d0, d3);
-    if (!mounted_) {
-        return;
+// 2ª tentativa: modo SPI (CMD = MOSI, D0 = MISO, CLK = SCK, D3 = CS), no SPI2
+// (o SPI3 é do display).
+static bool MountSpi(int clk, int cmd, int d0, int d3) {
+    if (d3 >= 0) {
+        gpio_reset_pin((gpio_num_t)d3);
     }
-    auto files = ScanFiles();
-    ESP_LOGI(TAG, "%u música(s) no cartão", (unsigned)files.size());
+    static bool bus_ok = false;
+    if (!bus_ok) {
+        spi_bus_config_t bus = {};
+        bus.mosi_io_num = cmd;
+        bus.miso_io_num = d0;
+        bus.sclk_io_num = clk;
+        bus.quadwp_io_num = -1;
+        bus.quadhd_io_num = -1;
+        bus.max_transfer_sz = 4096;
+        esp_err_t e = spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO);
+        if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "SPI2 para o cartão falhou: %s", esp_err_to_name(e));
+            return false;
+        }
+        bus_ok = true;
+    }
+
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SPI2_HOST;
+    sdspi_device_config_t dev = SDSPI_DEVICE_CONFIG_DEFAULT();
+    dev.host_id = SPI2_HOST;
+    dev.gpio_cs = (gpio_num_t)d3;
+
+    auto mount_cfg = MountConfig();
+    sdmmc_card_t* card = nullptr;
+    esp_err_t err = esp_vfs_fat_sdspi_mount(kMountPoint, &host, &dev, &mount_cfg, &card);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "SD em modo SPI falhou: %s", esp_err_to_name(err));
+        return false;
+    }
+    LogCard("SPI", card);
+    return true;
+}
+
+bool SdMusicPlayer::Mount(int clk, int cmd, int d0, int d3) {
+    if (MountSdmmc(clk, cmd, d0, d3)) {
+        return true;
+    }
+    if (MountSpi(clk, cmd, d0, d3)) {
+        return true;
+    }
+    ESP_LOGW(TAG, "Sem cartão SD (ou cartão não FAT32)");
+    return false;
+}
+
+void SdMusicPlayer::Initialize(int clk, int cmd, int d0, int d3) {
+    pin_clk_ = clk;
+    pin_cmd_ = cmd;
+    pin_d0_ = d0;
+    pin_d3_ = d3;
+    // As ferramentas são registradas mesmo sem cartão: assim a Sophia avisa
+    // "não encontrei o cartão" em vez de dizer que não sabe tocar músicas.
+    if (EnsureMounted()) {
+        auto files = ScanFiles();
+        ESP_LOGI(TAG, "%u música(s) no cartão", (unsigned)files.size());
+    }
 
     RegisterTools();
     xTaskCreatePinnedToCore(
         [](void* arg) { static_cast<SdMusicPlayer*>(arg)->Task(); }, "sd_music", 6144, this, 3,
         &task_, 1);
 }
+
+// Tenta montar de novo se o cartão foi colocado depois de ligar.
+bool SdMusicPlayer::EnsureMounted() {
+    if (!mounted_) {
+        mounted_ = Mount(pin_clk_, pin_cmd_, pin_d0_, pin_d3_);
+    }
+    return mounted_;
+}
+
+static const char* kSemCartao =
+    "Cartão SD não encontrado. Verifique se está bem encaixado e formatado em FAT32.";
 
 // ----------------------------------------------------------------------------
 // Lista de músicas
@@ -201,7 +287,13 @@ void SdMusicPlayer::RegisterTools() {
         "Lista as músicas do cartão SD do aparelho (nome e pasta/playlist). Use quando "
         "perguntarem quais músicas tem, ou para achar o nome certo antes de tocar.",
         PropertyList(), [this](const PropertyList&) -> ToolResult {
+            if (!EnsureMounted()) {
+                return std::unexpected<std::string>(kSemCartao);
+            }
             auto files = ScanFiles();
+            if (files.empty()) {
+                return std::string("O cartão SD não tem músicas (MP3, WAV, FLAC, M4A, AAC ou OGG).");
+            }
             cJSON* arr = cJSON_CreateArray();
             for (const auto& f : files) {
                 cJSON_AddItemToArray(arr, cJSON_CreateString(DisplayName(f).c_str()));
@@ -222,6 +314,9 @@ void SdMusicPlayer::RegisterTools() {
         [this](const PropertyList& props) -> ToolResult {
             std::string busca = props["busca"].value<std::string>();
             bool aleatorio = props["aleatorio"].value<bool>();
+            if (!EnsureMounted()) {
+                return std::unexpected<std::string>(kSemCartao);
+            }
             auto files = Filter(ScanFiles(), busca);
             if (files.empty()) {
                 return std::unexpected<std::string>(

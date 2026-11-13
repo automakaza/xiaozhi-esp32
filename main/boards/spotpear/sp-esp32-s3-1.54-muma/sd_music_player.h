@@ -31,7 +31,7 @@ public:
         return instance;
     }
 
-    // Monta o cartão (SDMMC 1 bit) e, se der certo, registra as ferramentas MCP.
+    // Monta o cartão (SDMMC 1 bit) e registra as ferramentas MCP.
     void Initialize(int clk, int cmd, int d0, int d3);
 
     bool IsMounted() const { return mounted_; }
@@ -46,6 +46,7 @@ private:
     SdMusicPlayer() = default;
 
     bool Mount(int clk, int cmd, int d0, int d3);
+    bool EnsureMounted();
     void RegisterTools();
     std::vector<std::string> ScanFiles();
     std::vector<std::string> Filter(const std::vector<std::string>& files, const std::string& termo);
@@ -62,6 +63,10 @@ private:
     bool Gate(Result& result);
 
     bool mounted_ = false;
+    int pin_clk_ = -1;
+    int pin_cmd_ = -1;
+    int pin_d0_ = -1;
+    int pin_d3_ = -1;
     std::atomic<bool> playing_{false};
     std::atomic<bool> play_pending_{false};
     std::atomic<bool> stop_req_{false};
