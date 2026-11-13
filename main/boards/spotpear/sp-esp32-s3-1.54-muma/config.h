@@ -29,6 +29,9 @@
 #define DISPLAY_MIRROR_Y false
 #define DISPLAY_SWAP_XY false
 
+// Sophia: 1 = olhos animados (EyesLcdDisplay), 0 = emoji padrão do Xiaozhi
+#define DISPLAY_ROBOT_EYES 1
+
 #define DISPLAY_OFFSET_X  0
 #define DISPLAY_OFFSET_Y  0
 
