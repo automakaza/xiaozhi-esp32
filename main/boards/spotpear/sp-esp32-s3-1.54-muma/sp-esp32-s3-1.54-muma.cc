@@ -262,16 +262,19 @@ private:
                 EnterWifiConfigMode();
                 return;
             }
-#if SD_MUSIC_PLAYER
-            // Com música tocando, o botão só para a música
-            auto& player = SdMusicPlayer::GetInstance();
-            if (player.IsPlaying() && app.GetDeviceState() == kDeviceStateIdle) {
-                player.Stop();
-                return;
-            }
-#endif
+            // Com música tocando, o clique abre a conversa normalmente: a música
+            // pausa e volta sozinha depois da resposta.
             app.ToggleChatState();
         });
+#if SD_MUSIC_PLAYER
+        // Segurar o botão (~1,5 s) para a música de vez
+        boot_button_.OnLongPress([]() {
+            auto& player = SdMusicPlayer::GetInstance();
+            if (player.IsPlaying()) {
+                player.Stop();
+            }
+        });
+#endif
     }
 
 public:
@@ -291,7 +294,8 @@ public:
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
 #if SD_MUSIC_PLAYER
-        SdMusicPlayer::GetInstance().Initialize(SD_PIN_CLK, SD_PIN_CMD, SD_PIN_D0, SD_PIN_D3);
+        SdMusicPlayer::GetInstance().Initialize(SD_PIN_CLK, SD_PIN_CMD, SD_PIN_D0, SD_PIN_D3,
+                                                SD_MUSIC_VOLUME);
 #endif
 
     }

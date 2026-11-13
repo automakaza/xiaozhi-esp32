@@ -2,6 +2,7 @@
 
 #include "application.h"
 #include "board.h"
+#include "display/display.h"
 #include "audio/audio_service.h"
 #include "audio/demuxer/ogg_demuxer.h"
 #include "mcp_server.h"
@@ -144,7 +145,8 @@ bool SdMusicPlayer::Mount(int clk, int cmd, int d0, int d3) {
     return false;
 }
 
-void SdMusicPlayer::Initialize(int clk, int cmd, int d0, int d3) {
+void SdMusicPlayer::Initialize(int clk, int cmd, int d0, int d3, int volume) {
+    music_volume_ = std::max(5, std::min(volume, 100));
     pin_clk_ = clk;
     pin_cmd_ = cmd;
     pin_d0_ = d0;
@@ -410,6 +412,35 @@ bool SdMusicPlayer::WaitUntilFree(uint32_t timeout_ms) {
     }
 }
 
+// Mostra o nome da música na barra de texto da tela (os olhos sobem um pouco)
+// e deixa os olhos "curtindo" (felizes) enquanto toca.
+void SdMusicPlayer::ShowNowPlaying() {
+    std::string nome;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        nome = current_;
+    }
+    auto barra = nome.find_last_of('/');
+    if (barra != std::string::npos) {
+        nome = nome.substr(barra + 1);  // sem a pasta/playlist
+    }
+    auto display = Board::GetInstance().GetDisplay();
+    if (display == nullptr || nome.empty()) {
+        return;
+    }
+    display->SetEmotion("happy");
+    display->SetChatMessage("system", ("Tocando: " + nome).c_str());
+}
+
+void SdMusicPlayer::ClearNowPlaying() {
+    auto display = Board::GetInstance().GetDisplay();
+    if (display == nullptr) {
+        return;
+    }
+    display->SetChatMessage("system", "");
+    display->SetEmotion("neutral");
+}
+
 // Antes de entregar cada pedaço de áudio: obedece parar/pular/nova música e
 // pausa enquanto alguém conversa com a Sophia. false = encerrar a faixa.
 bool SdMusicPlayer::Gate(Result& result) {
@@ -433,6 +464,7 @@ bool SdMusicPlayer::Gate(Result& result) {
             return false;
         }
         ESP_LOGI(TAG, "Música retomada");
+        ShowNowPlaying();  // a conversa limpou a tela
     }
     return true;
 }
@@ -622,7 +654,7 @@ SdMusicPlayer::Result SdMusicPlayer::StreamDecoded(FILE* f, const std::string& p
                     for (int c = 0; c < channels; c++) {
                         soma += pcm[i * channels + c];
                     }
-                    mono[i] = (int16_t)(soma / channels);
+                    mono[i] = (int16_t)(soma / channels * music_volume_ / 100);
                 }
 
                 if (resampler != nullptr) {
@@ -663,6 +695,7 @@ SdMusicPlayer::Result SdMusicPlayer::StreamDecoded(FILE* f, const std::string& p
 }
 
 void SdMusicPlayer::Task() {
+    auto& app = Application::GetInstance();
     while (true) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
@@ -689,11 +722,17 @@ void SdMusicPlayer::Task() {
                 }
                 ESP_LOGI(TAG, "Tocando %s", list[i].c_str());
                 next_req_ = false;
+                if (app.GetDeviceState() == kDeviceStateIdle) {
+                    ShowNowPlaying();
+                }
                 if (StreamFile(list[i]) == kStopped) {
                     break;
                 }
             }
             playing_ = false;
+            if (app.GetDeviceState() == kDeviceStateIdle && !play_pending_) {
+                ClearNowPlaying();
+            }
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 current_.clear();

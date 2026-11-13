@@ -32,7 +32,8 @@ public:
     }
 
     // Monta o cartão (SDMMC 1 bit) e registra as ferramentas MCP.
-    void Initialize(int clk, int cmd, int d0, int d3);
+    // volume: % da música em relação à voz (MP3/WAV/FLAC/M4A/AAC)
+    void Initialize(int clk, int cmd, int d0, int d3, int volume = 100);
 
     bool IsMounted() const { return mounted_; }
     bool IsPlaying() const { return playing_; }
@@ -61,8 +62,11 @@ private:
     Result StreamOpus(FILE* f, const std::string& path);
     Result StreamDecoded(FILE* f, const std::string& path, int type);
     bool Gate(Result& result);
+    void ShowNowPlaying();
+    void ClearNowPlaying();
 
     bool mounted_ = false;
+    int music_volume_ = 100;
     int pin_clk_ = -1;
     int pin_cmd_ = -1;
     int pin_d0_ = -1;

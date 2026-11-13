@@ -62,6 +62,9 @@
 #define SD_PIN_CMD        GPIO_NUM_18
 #define SD_PIN_D0         GPIO_NUM_21
 #define SD_PIN_D3         GPIO_NUM_13
+// Volume da música em relação à voz (%). Mais baixo = ela ouve melhor o
+// "Sophia" com música tocando (o robozinho não tem cancelamento de eco).
+#define SD_MUSIC_VOLUME   55
 
 #define DISPLAY_SPI_SCLK_HZ     (40 * 1000 * 1000)
 
