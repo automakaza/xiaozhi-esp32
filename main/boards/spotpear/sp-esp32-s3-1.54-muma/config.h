@@ -20,8 +20,8 @@
 #define AUDIO_CODEC_ES8311_ADDR  ES8311_CODEC_DEFAULT_ADDR
 
 // Sophia: ganho do microfone em dB (padrão do Xiaozhi = 30). Mais alto ouve
-// de mais longe, mas também capta mais ruído. Teste 36 e 42.
-#define AUDIO_MIC_GAIN_DB        36
+// de mais longe, mas pode saturar (36 piorou a wake word no teste de 13/11).
+#define AUDIO_MIC_GAIN_DB        30
 
 #define BUILTIN_LED_GPIO        GPIO_NUM_48
 #define BOOT_BUTTON_GPIO        GPIO_NUM_0
