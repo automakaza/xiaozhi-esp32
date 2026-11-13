@@ -2,6 +2,7 @@
 #include "codecs/es8311_audio_codec.h"
 #include "display/lcd_display.h"
 #include "eyes_lcd_display.h"
+#include "sd_music_player.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
@@ -261,6 +262,14 @@ private:
                 EnterWifiConfigMode();
                 return;
             }
+#if SD_MUSIC_PLAYER
+            // Com música tocando, o botão só para a música
+            auto& player = SdMusicPlayer::GetInstance();
+            if (player.IsPlaying() && app.GetDeviceState() == kDeviceStateIdle) {
+                player.Stop();
+                return;
+            }
+#endif
             app.ToggleChatState();
         });
     }
@@ -281,6 +290,9 @@ public:
         InitializeSt7789Display();
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
+#if SD_MUSIC_PLAYER
+        SdMusicPlayer::GetInstance().Initialize(SD_PIN_CLK, SD_PIN_CMD, SD_PIN_D0, SD_PIN_D3);
+#endif
 
     }
 

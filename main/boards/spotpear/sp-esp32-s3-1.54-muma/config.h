@@ -56,6 +56,13 @@
 #define POWER_ADC_UNIT ADC_UNIT_1
 #define POWER_ADC_CHANNEL ADC_CHANNEL_0
 
+// Cartão SD (SDMMC 1 bit) para o player de músicas da Sophia
+#define SD_MUSIC_PLAYER   1
+#define SD_PIN_CLK        GPIO_NUM_17
+#define SD_PIN_CMD        GPIO_NUM_18
+#define SD_PIN_D0         GPIO_NUM_21
+#define SD_PIN_D3         GPIO_NUM_13
+
 #define DISPLAY_SPI_SCLK_HZ     (40 * 1000 * 1000)
 
 #endif // _BOARD_CONFIG_H_

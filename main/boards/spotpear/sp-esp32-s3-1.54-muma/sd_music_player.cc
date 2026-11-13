@@ -1,0 +1,609 @@
+#include "sd_music_player.h"
+
+#include "application.h"
+#include "board.h"
+#include "audio/audio_service.h"
+#include "audio/demuxer/ogg_demuxer.h"
+#include "mcp_server.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+
+#include <dirent.h>
+#include <sys/stat.h>
+
+#include <cJSON.h>
+#include <driver/gpio.h>
+#include <driver/sdmmc_host.h>
+#include <esp_log.h>
+#include <esp_random.h>
+#include <esp_vfs_fat.h>
+#include <esp_audio_dec_default.h>
+#include <esp_audio_simple_dec.h>
+#include <esp_audio_simple_dec_default.h>
+#include <esp_ae_rate_cvt.h>
+#include <sdmmc_cmd.h>
+
+#define TAG "SdMusicPlayer"
+
+static const char* kMountPoint = "/sdcard";
+static const size_t kMaxFiles = 300;
+static const size_t kReadChunk = 4096;
+
+// ----------------------------------------------------------------------------
+// Cartão SD
+// ----------------------------------------------------------------------------
+
+bool SdMusicPlayer::Mount(int clk, int cmd, int d0, int d3) {
+    // Em modo SD de 1 bit o D3 tem que ficar em nível alto (em baixo o cartão
+    // entra em modo SPI no reset).
+    if (d3 >= 0) {
+        gpio_config_t io = {};
+        io.pin_bit_mask = 1ULL << d3;
+        io.mode = GPIO_MODE_OUTPUT;
+        gpio_config(&io);
+        gpio_set_level((gpio_num_t)d3, 1);
+    }
+
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 1;
+    slot.clk = (gpio_num_t)clk;
+    slot.cmd = (gpio_num_t)cmd;
+    slot.d0 = (gpio_num_t)d0;
+    slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+    esp_vfs_fat_sdmmc_mount_config_t mount_cfg = {};
+    mount_cfg.format_if_mount_failed = false;
+    mount_cfg.max_files = 4;
+    mount_cfg.allocation_unit_size = 16 * 1024;
+
+    sdmmc_card_t* card = nullptr;
+    esp_err_t err = esp_vfs_fat_sdmmc_mount(kMountPoint, &host, &slot, &mount_cfg, &card);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Sem cartão SD (ou cartão não FAT32): %s", esp_err_to_name(err));
+        return false;
+    }
+    ESP_LOGI(TAG, "Cartão SD montado: %s, %llu MB", card->cid.name,
+             ((unsigned long long)card->csd.capacity) * card->csd.sector_size / (1024 * 1024));
+    return true;
+}
+
+void SdMusicPlayer::Initialize(int clk, int cmd, int d0, int d3) {
+    mounted_ = Mount(clk, cmd, d0, d3);
+    if (!mounted_) {
+        return;
+    }
+    auto files = ScanFiles();
+    ESP_LOGI(TAG, "%u música(s) no cartão", (unsigned)files.size());
+
+    RegisterTools();
+    xTaskCreatePinnedToCore(
+        [](void* arg) { static_cast<SdMusicPlayer*>(arg)->Task(); }, "sd_music", 6144, this, 3,
+        &task_, 1);
+}
+
+// ----------------------------------------------------------------------------
+// Lista de músicas
+// ----------------------------------------------------------------------------
+
+std::string SdMusicPlayer::Lower(const std::string& s) {
+    std::string r = s;
+    std::transform(r.begin(), r.end(), r.begin(),
+                   [](unsigned char c) { return (c < 128) ? std::tolower(c) : c; });
+    return r;
+}
+
+static bool IsAudioFile(const std::string& name) {
+    auto lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return (c < 128) ? std::tolower(c) : c; });
+    auto ends = [&lower](const char* ext) {
+        size_t n = strlen(ext);
+        return lower.size() > n && lower.compare(lower.size() - n, n, ext) == 0;
+    };
+    return ends(".ogg") || ends(".opus") || ends(".mp3") || ends(".wav") || ends(".flac") ||
+           ends(".m4a") || ends(".aac");
+}
+
+// Tipo do decodificador pela extensão (NONE = Ogg Opus, caminho próprio)
+static esp_audio_simple_dec_type_t DecoderType(const std::string& path) {
+    auto dot = path.find_last_of('.');
+    std::string ext = (dot == std::string::npos) ? "" : path.substr(dot + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+    if (ext == "mp3") return ESP_AUDIO_SIMPLE_DEC_TYPE_MP3;
+    if (ext == "wav") return ESP_AUDIO_SIMPLE_DEC_TYPE_WAV;
+    if (ext == "flac") return ESP_AUDIO_SIMPLE_DEC_TYPE_FLAC;
+    if (ext == "m4a") return ESP_AUDIO_SIMPLE_DEC_TYPE_M4A;
+    if (ext == "aac") return ESP_AUDIO_SIMPLE_DEC_TYPE_AAC;
+    return ESP_AUDIO_SIMPLE_DEC_TYPE_NONE;
+}
+
+static void ScanDir(const std::string& dir, std::vector<std::string>& out, int depth) {
+    if (depth > 3 || out.size() >= kMaxFiles) {
+        return;
+    }
+    DIR* d = opendir(dir.c_str());
+    if (d == nullptr) {
+        return;
+    }
+    struct dirent* e;
+    while ((e = readdir(d)) != nullptr && out.size() < kMaxFiles) {
+        if (e->d_name[0] == '.') {
+            continue;  // ocultos, "." e ".."
+        }
+        std::string path = dir + "/" + e->d_name;
+        if (e->d_type == DT_DIR) {
+            if (strcasecmp(e->d_name, "System Volume Information") != 0) {
+                ScanDir(path, out, depth + 1);
+            }
+        } else if (IsAudioFile(e->d_name)) {
+            out.push_back(path);
+        }
+    }
+    closedir(d);
+}
+
+std::vector<std::string> SdMusicPlayer::ScanFiles() {
+    std::vector<std::string> files;
+    ScanDir(kMountPoint, files, 0);
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+// "/sdcard/musicas/caminhada/Asa Branca.ogg" -> "caminhada/Asa Branca"
+std::string SdMusicPlayer::DisplayName(const std::string& path) {
+    std::string name = path;
+    const std::string prefixes[] = {std::string(kMountPoint) + "/musicas/",
+                                    std::string(kMountPoint) + "/"};
+    for (const auto& p : prefixes) {
+        if (name.compare(0, p.size(), p) == 0) {
+            name = name.substr(p.size());
+            break;
+        }
+    }
+    auto dot = name.find_last_of('.');
+    if (dot != std::string::npos) {
+        name = name.substr(0, dot);
+    }
+    return name;
+}
+
+// Busca pelo nome da música ou da pasta (playlist), sem diferenciar maiúsculas.
+std::vector<std::string> SdMusicPlayer::Filter(const std::vector<std::string>& files,
+                                               const std::string& termo) {
+    if (termo.empty()) {
+        return files;
+    }
+    std::string t = Lower(termo);
+    std::vector<std::string> out;
+    for (const auto& f : files) {
+        if (Lower(DisplayName(f)).find(t) != std::string::npos) {
+            out.push_back(f);
+        }
+    }
+    return out;
+}
+
+// ----------------------------------------------------------------------------
+// Ferramentas MCP
+// ----------------------------------------------------------------------------
+
+void SdMusicPlayer::RegisterTools() {
+    auto& mcp = McpServer::GetInstance();
+
+    mcp.AddTool(
+        "self.music.list",
+        "Lista as músicas do cartão SD do aparelho (nome e pasta/playlist). Use quando "
+        "perguntarem quais músicas tem, ou para achar o nome certo antes de tocar.",
+        PropertyList(), [this](const PropertyList&) -> ToolResult {
+            auto files = ScanFiles();
+            cJSON* arr = cJSON_CreateArray();
+            for (const auto& f : files) {
+                cJSON_AddItemToArray(arr, cJSON_CreateString(DisplayName(f).c_str()));
+            }
+            return arr;
+        });
+
+    mcp.AddTool(
+        "self.music.play",
+        "Toca músicas do cartão SD do próprio aparelho (não é rádio nem internet). "
+        "'busca' é parte do nome da música ou da pasta/playlist; vazio toca todas. "
+        "'aleatorio' embaralha. A música começa assim que você terminar de responder, "
+        "então responda bem curto (ex.: 'Tocando!'). Se te chamarem durante a música ela "
+        "pausa e volta sozinha depois da sua resposta; para parar de vez use "
+        "self.music.stop, para pular use self.music.next.",
+        PropertyList({Property("busca", kPropertyTypeString, std::string("")),
+                      Property("aleatorio", kPropertyTypeBoolean, false)}),
+        [this](const PropertyList& props) -> ToolResult {
+            std::string busca = props["busca"].value<std::string>();
+            bool aleatorio = props["aleatorio"].value<bool>();
+            auto files = Filter(ScanFiles(), busca);
+            if (files.empty()) {
+                return std::unexpected<std::string>(
+                    busca.empty() ? "Não há músicas no cartão SD."
+                                  : "Nenhuma música encontrada com '" + busca +
+                                        "'. Use self.music.list para ver os nomes.");
+            }
+            if (aleatorio) {
+                for (size_t i = files.size() - 1; i > 0; i--) {
+                    std::swap(files[i], files[esp_random() % (i + 1)]);
+                }
+            }
+            std::string primeira = DisplayName(files[0]);
+            size_t total = files.size();
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                pending_list_ = std::move(files);
+            }
+            play_pending_ = true;
+            stop_req_ = true;  // interrompe o que estiver tocando
+            xTaskNotifyGive(task_);
+            return std::string("Vai tocar ") + std::to_string(total) +
+                   (total == 1 ? " música: " : " músicas, começando por: ") + primeira;
+        });
+
+    mcp.AddTool("self.music.next", "Pula para a próxima música do cartão SD.", PropertyList(),
+                [this](const PropertyList&) -> ToolResult {
+                    if (!playing_ && !play_pending_) {
+                        return std::unexpected<std::string>("Nenhuma música tocando.");
+                    }
+                    next_req_ = true;
+                    return true;
+                });
+
+    mcp.AddTool("self.music.stop", "Para a música do cartão SD.", PropertyList(),
+                [this](const PropertyList&) -> ToolResult {
+                    play_pending_ = false;
+                    stop_req_ = true;
+                    return true;
+                });
+
+    mcp.AddTool("self.music.status", "Diz se há música do cartão SD tocando e qual.",
+                PropertyList(), [this](const PropertyList&) -> ToolResult {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (!playing_ && !play_pending_) {
+                        return std::string("Nada tocando.");
+                    }
+                    return std::string("Tocando: ") +
+                           (current_.empty() ? "(começando)" : current_);
+                });
+}
+
+// ----------------------------------------------------------------------------
+// Reprodução
+// ----------------------------------------------------------------------------
+
+// Espera a Sophia terminar de responder e encerra a conversa (sem isso ela
+// fica ouvindo e a música não volta). false = pedido cancelado (parar ou
+// outra música pedida) ou conversa longa demais.
+bool SdMusicPlayer::WaitUntilFree(uint32_t timeout_ms) {
+    auto& app = Application::GetInstance();
+    auto& audio = app.GetAudioService();
+    const TickType_t start = xTaskGetTickCount();
+    bool saw_speaking = false;
+    bool stop_sent = false;
+
+    while (true) {
+        if (stop_req_ || play_pending_) {
+            return false;
+        }
+        auto st = app.GetDeviceState();
+        uint32_t elapsed_ms = pdTICKS_TO_MS(xTaskGetTickCount() - start);
+
+        if (st == kDeviceStateIdle && audio.IsPlaybackIdle()) {
+            return true;
+        }
+        if (st == kDeviceStateSpeaking) {
+            saw_speaking = true;
+            stop_sent = false;  // depois de cada resposta, encerra de novo
+        }
+        if (st == kDeviceStateListening && !stop_sent && (saw_speaking || elapsed_ms > 12000)) {
+            ESP_LOGI(TAG, "Encerrando a conversa para seguir com a música");
+            app.StopListening();
+            stop_sent = true;
+        }
+        if (elapsed_ms > timeout_ms) {
+            ESP_LOGW(TAG, "Conversa longa demais: música cancelada");
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+// Antes de entregar cada pedaço de áudio: obedece parar/pular/nova música e
+// pausa enquanto alguém conversa com a Sophia. false = encerrar a faixa.
+bool SdMusicPlayer::Gate(Result& result) {
+    if (stop_req_ || play_pending_) {
+        result = kStopped;
+        return false;
+    }
+    if (next_req_) {
+        result = kSkipped;
+        return false;
+    }
+    if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
+        // Alguém chamou a Sophia: pausa aqui e continua do mesmo ponto
+        ESP_LOGI(TAG, "Música pausada (conversa)");
+        if (!WaitUntilFree(10 * 60 * 1000)) {
+            result = kStopped;
+            return false;
+        }
+        if (next_req_) {
+            result = kSkipped;
+            return false;
+        }
+        ESP_LOGI(TAG, "Música retomada");
+    }
+    return true;
+}
+
+SdMusicPlayer::Result SdMusicPlayer::StreamFile(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (f == nullptr) {
+        ESP_LOGE(TAG, "Não abriu %s", path.c_str());
+        return kSkipped;
+    }
+    auto type = DecoderType(path);
+    Result result = (type == ESP_AUDIO_SIMPLE_DEC_TYPE_NONE) ? StreamOpus(f, path)
+                                                             : StreamDecoded(f, path, (int)type);
+    fclose(f);
+
+    auto& app = Application::GetInstance();
+    if (result != kFinished && app.GetDeviceState() == kDeviceStateIdle) {
+        app.GetAudioService().ResetDecoder();  // corta o que ainda estava na fila
+    }
+    return result;
+}
+
+// Ogg Opus mono: entra na fila do decodificador Opus do próprio Xiaozhi.
+SdMusicPlayer::Result SdMusicPlayer::StreamOpus(FILE* f, const std::string& path) {
+    auto& audio = Application::GetInstance().GetAudioService();
+    // Liga a saída de áudio (e o desligamento automático dela depois)
+    audio.PlaySound(std::string_view());
+
+    Result result = kFinished;
+    bool running = true;
+    auto demuxer = std::make_unique<OggDemuxer>();
+    demuxer->OnPacket([this, &audio, &result, &running](const uint8_t* data, int sample_rate,
+                                                       int frame_duration_ms, size_t size) {
+        if (!running) {
+            return;
+        }
+        if (!Gate(result)) {
+            running = false;
+            return;
+        }
+        auto packet = std::make_unique<AudioStreamPacket>();
+        packet->sample_rate = sample_rate;
+        packet->frame_duration = frame_duration_ms;
+        packet->payload.assign(data, data + size);
+        audio.PushPacketToDecodeQueue(std::move(packet), true);
+    });
+    demuxer->Reset();
+
+    std::vector<uint8_t> buf(kReadChunk);
+    while (running) {
+        size_t n = fread(buf.data(), 1, buf.size(), f);
+        if (n == 0) {
+            break;
+        }
+        size_t done = 0;
+        while (done < n && running) {
+            size_t used = demuxer->Process(buf.data() + done, n - done);
+            if (used == 0) {
+                break;
+            }
+            done += used;
+        }
+        if (demuxer->HasError()) {
+            ESP_LOGE(TAG, "%s não é Ogg Opus mono; pulando", path.c_str());
+            return kSkipped;
+        }
+    }
+    return result;
+}
+
+// MP3, WAV, FLAC, M4A e AAC: decodifica aqui, junta os canais em mono, converte
+// para a taxa do alto-falante e entrega o PCM pronto à fila de reprodução.
+SdMusicPlayer::Result SdMusicPlayer::StreamDecoded(FILE* f, const std::string& path, int type) {
+    static bool registrado = false;
+    if (!registrado) {
+        esp_audio_dec_register_default();
+        esp_audio_simple_dec_register_default();
+        registrado = true;
+    }
+
+    auto& audio = Application::GetInstance().GetAudioService();
+    const int out_rate = Board::GetInstance().GetAudioCodec()->output_sample_rate();
+
+    esp_audio_simple_dec_cfg_t cfg = {};
+    cfg.dec_type = (esp_audio_simple_dec_type_t)type;
+    esp_audio_simple_dec_handle_t dec = nullptr;
+    if (esp_audio_simple_dec_open(&cfg, &dec) != ESP_AUDIO_ERR_OK || dec == nullptr) {
+        ESP_LOGE(TAG, "Formato não suportado: %s", path.c_str());
+        return kSkipped;
+    }
+
+    esp_ae_rate_cvt_handle_t resampler = nullptr;
+    int in_rate = 0;
+    int channels = 0;
+    bool erro = false;
+
+    Result result = kFinished;
+    std::vector<uint8_t> in_buf(kReadChunk);
+    std::vector<uint8_t> out_buf(8192);
+    std::vector<int16_t> mono;
+    std::vector<int16_t> resampled;
+    std::vector<int16_t> pending;
+    const size_t chunk_samples = out_rate / 10;  // entrega em pedaços de ~100 ms
+    pending.reserve(chunk_samples * 2);
+
+    auto entregar = [&](bool tudo) -> bool {
+        while (pending.size() >= chunk_samples || (tudo && !pending.empty())) {
+            if (!Gate(result)) {
+                return false;
+            }
+            size_t n = std::min(pending.size(), chunk_samples);
+            std::vector<int16_t> pcm(pending.begin(), pending.begin() + n);
+            pending.erase(pending.begin(), pending.begin() + n);
+            if (!audio.PushPcmToPlaybackQueue(std::move(pcm), true)) {
+                // fila limpa no meio (alguém chamou a Sophia): passa pela pausa
+                if (!Gate(result)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    esp_audio_simple_dec_raw_t raw = {};
+    bool running = true;
+    while (running) {
+        size_t lidos = fread(in_buf.data(), 1, in_buf.size(), f);
+        if (lidos == 0) {
+            break;
+        }
+        raw.buffer = in_buf.data();
+        raw.len = lidos;
+        raw.eos = (lidos < in_buf.size());
+
+        while (raw.len > 0 && running) {
+            esp_audio_simple_dec_out_t out = {};
+            out.buffer = out_buf.data();
+            out.len = out_buf.size();
+            auto ret = esp_audio_simple_dec_process(dec, &raw, &out);
+            if (ret == ESP_AUDIO_ERR_BUFF_NOT_ENOUGH) {
+                out_buf.resize(out.needed_size);
+                continue;
+            }
+            if (ret != ESP_AUDIO_ERR_OK) {
+                ESP_LOGE(TAG, "Erro %d decodificando %s", (int)ret, path.c_str());
+                erro = true;
+                running = false;
+                break;
+            }
+            if (out.decoded_size > 0) {
+                if (channels == 0) {
+                    esp_audio_simple_dec_info_t info = {};
+                    esp_audio_simple_dec_get_info(dec, &info);
+                    if (info.bits_per_sample != 16 || info.channel == 0) {
+                        ESP_LOGE(TAG, "%s: só áudio de 16 bits (tem %d)", path.c_str(),
+                                 info.bits_per_sample);
+                        erro = true;
+                        running = false;
+                        break;
+                    }
+                    in_rate = info.sample_rate;
+                    channels = info.channel;
+                    ESP_LOGI(TAG, "%d Hz, %d canal(is) -> %d Hz mono", in_rate, channels, out_rate);
+                    if (in_rate != out_rate) {
+                        esp_ae_rate_cvt_cfg_t rc = {};
+                        rc.src_rate = (uint32_t)in_rate;
+                        rc.dest_rate = (uint32_t)out_rate;
+                        rc.channel = 1;
+                        rc.bits_per_sample = ESP_AUDIO_BIT16;
+                        rc.complexity = 2;
+                        rc.perf_type = ESP_AE_RATE_CVT_PERF_TYPE_SPEED;
+                        if (esp_ae_rate_cvt_open(&rc, &resampler) != ESP_AE_ERR_OK) {
+                            ESP_LOGE(TAG, "Falha no conversor de taxa");
+                            erro = true;
+                            running = false;
+                            break;
+                        }
+                    }
+                }
+
+                // estéreo (ou mais) -> mono
+                const int16_t* pcm = reinterpret_cast<const int16_t*>(out.buffer);
+                size_t frames = out.decoded_size / sizeof(int16_t) / channels;
+                mono.resize(frames);
+                for (size_t i = 0; i < frames; i++) {
+                    int32_t soma = 0;
+                    for (int c = 0; c < channels; c++) {
+                        soma += pcm[i * channels + c];
+                    }
+                    mono[i] = (int16_t)(soma / channels);
+                }
+
+                if (resampler != nullptr) {
+                    uint32_t max_out = 0;
+                    esp_ae_rate_cvt_get_max_out_sample_num(resampler, frames, &max_out);
+                    resampled.resize(max_out);
+                    uint32_t produzidos = max_out;
+                    esp_ae_rate_cvt_process(resampler, (esp_ae_sample_t)mono.data(), frames,
+                                            (esp_ae_sample_t)resampled.data(), &produzidos);
+                    pending.insert(pending.end(), resampled.begin(), resampled.begin() + produzidos);
+                } else {
+                    pending.insert(pending.end(), mono.begin(), mono.end());
+                }
+                if (!entregar(false)) {
+                    running = false;
+                    break;
+                }
+            }
+            raw.len -= raw.consumed;
+            raw.buffer += raw.consumed;
+        }
+        if (raw.eos) {
+            break;
+        }
+    }
+    if (running && !erro) {
+        entregar(true);  // o finalzinho da música
+    }
+
+    if (resampler != nullptr) {
+        esp_ae_rate_cvt_close(resampler);
+    }
+    esp_audio_simple_dec_close(dec);
+    if (erro && result == kFinished) {
+        return kSkipped;
+    }
+    return result;
+}
+
+void SdMusicPlayer::Task() {
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (play_pending_) {
+            std::vector<std::string> list;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                list = pending_list_;
+                current_.clear();
+            }
+            play_pending_ = false;
+            stop_req_ = false;
+            next_req_ = false;
+
+            if (!WaitUntilFree(90 * 1000)) {
+                continue;
+            }
+
+            playing_ = true;
+            for (size_t i = 0; i < list.size(); i++) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    current_ = DisplayName(list[i]);
+                }
+                ESP_LOGI(TAG, "Tocando %s", list[i].c_str());
+                next_req_ = false;
+                if (StreamFile(list[i]) == kStopped) {
+                    break;
+                }
+            }
+            playing_ = false;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                current_.clear();
+            }
+            ESP_LOGI(TAG, "Fim da música");
+        }
+    }
+}
