@@ -5,7 +5,9 @@
     "builds": [
         {
             "name": "sp-esp32-s3-1.54-muma",
-            "sdkconfig_append": []
+            "sdkconfig_append": [
+                "CONFIG_SEND_WAKE_WORD_DATA=n"
+            ]
         }
     ]
 }
