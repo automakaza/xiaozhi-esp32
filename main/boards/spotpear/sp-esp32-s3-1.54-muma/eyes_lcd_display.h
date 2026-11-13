@@ -66,6 +66,10 @@ private:
     bool text_visible_ = false;
     bool allow_blink_ = true;
     bool allow_look_ = true;
+    bool dancing_ = false;          // emoção "music": balança no ritmo
+    int dance_step_ = 0;
+    uint32_t next_dance_ms_ = 0;
+    std::string music_text_;        // nome da música (volta quando a conversa limpa a tela)
     int blink_step_ = 0;
     int look_dx_ = 0;
     int look_dy_ = 0;
@@ -85,6 +89,7 @@ private:
     bool SelectShapes(const char* emotion);
     void ApplyShape();
     void UpdateTextVisible();
+    void RestoreMusicText();
     static void TimerCallback(lv_timer_t* timer);
     void OnTimer();
 };

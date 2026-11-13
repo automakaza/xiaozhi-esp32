@@ -146,6 +146,7 @@ bool EyesLcdDisplay::SelectShapes(const char* emotion) {
     EyeShape right = normal;
     allow_blink_ = true;
     allow_look_ = false;
+    dancing_ = false;
     pupil_show_ = true;
     pupil_base_x_ = 0;
     pupil_base_y_ = 0;
@@ -153,6 +154,12 @@ bool EyesLcdDisplay::SelectShapes(const char* emotion) {
 
     if (is("neutral") || is("relaxed")) {
         allow_look_ = true;
+    } else if (is("music")) {
+        // Curtindo a música: olhos sorrindo que balançam no ritmo (OnTimer)
+        left.happy = right.happy = true;
+        allow_blink_ = false;
+        pupil_show_ = false;
+        dancing_ = true;
     } else if (is("happy") || is("laughing") || is("funny") || is("loving") ||
                is("delicious") || is("kissy") || is("silly")) {
         left.happy = right.happy = true;
@@ -195,6 +202,9 @@ bool EyesLcdDisplay::SelectShapes(const char* emotion) {
         return false;  // não é emoção (ícone de sistema)
     }
 
+    if (sono_ >= 1) {
+        dancing_ = false;
+    }
     if (sono_ == 1) {
         left = right = {36, 12, 5, 0, 7, 0, 0, false};
         allow_blink_ = true;
@@ -374,20 +384,42 @@ void EyesLcdDisplay::SetSono(int nivel) {
     ApplyShape();
 }
 
+// role "music": nome da música que fica "grudado" na barra de texto. Quando a
+// conversa limpa a barra, o nome da música volta sozinho.
 void EyesLcdDisplay::SetChatMessage(const char* role, const char* content) {
-    SpiLcdDisplay::SetChatMessage(role, content);
+    std::string texto = (content != nullptr) ? content : "";
+    if (role != nullptr && strcmp(role, "music") == 0) {
+        {
+            DisplayLockGuard lock(this);
+            music_text_ = texto;
+        }
+    } else if (texto.empty() && !music_text_.empty()) {
+        texto = music_text_;
+    }
+    SpiLcdDisplay::SetChatMessage(role, texto.c_str());
     DisplayLockGuard lock(this);
     UpdateTextVisible();
 }
 
 void EyesLcdDisplay::RemoveChatMessage(const char* role, const char* content) {
     SpiLcdDisplay::RemoveChatMessage(role, content);
-    DisplayLockGuard lock(this);
-    UpdateTextVisible();
+    RestoreMusicText();
 }
 
 void EyesLcdDisplay::ClearChatMessages() {
     SpiLcdDisplay::ClearChatMessages();
+    RestoreMusicText();
+}
+
+void EyesLcdDisplay::RestoreMusicText() {
+    std::string texto;
+    {
+        DisplayLockGuard lock(this);
+        texto = music_text_;
+    }
+    if (!texto.empty()) {
+        SpiLcdDisplay::SetChatMessage("music", texto.c_str());
+    }
     DisplayLockGuard lock(this);
     UpdateTextVisible();
 }
@@ -444,6 +476,17 @@ void EyesLcdDisplay::OnTimer() {
     } else if (allow_blink_ && now >= next_blink_ms_) {
         blink_step_ = 1;
         next_blink_ms_ = now + (RandomBetween(0, 5) == 0 ? 350 : RandomBetween(2500, 6000));
+        changed = true;
+    }
+
+    // Dançando: sobe e desce no ritmo e às vezes balança para os lados
+    if (dancing_ && now >= next_dance_ms_) {
+        dance_step_ = (dance_step_ + 1) % 8;
+        static const int kDy[] = {0, -2, 0, -2, 0, -2, 0, -2};
+        static const int kDx[] = {0, 0, 2, 2, 0, 0, -2, -2};
+        look_dy_ = kDy[dance_step_];
+        look_dx_ = kDx[dance_step_];
+        next_dance_ms_ = now + 260;
         changed = true;
     }
 

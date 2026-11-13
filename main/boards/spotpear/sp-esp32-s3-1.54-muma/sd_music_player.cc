@@ -579,8 +579,8 @@ void SdMusicPlayer::ShowNowPlaying() {
     if (display == nullptr || nome.empty()) {
         return;
     }
-    display->SetEmotion("happy");
-    display->SetChatMessage("system", ("Tocando: " + nome).c_str());
+    display->SetEmotion("music");
+    display->SetChatMessage("music", ("Tocando: " + nome).c_str());
 }
 
 void SdMusicPlayer::ClearNowPlaying() {
@@ -588,7 +588,7 @@ void SdMusicPlayer::ClearNowPlaying() {
     if (display == nullptr) {
         return;
     }
-    display->SetChatMessage("system", "");
+    display->SetChatMessage("music", "");
     display->SetEmotion("neutral");
 }
 
