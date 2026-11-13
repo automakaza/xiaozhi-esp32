@@ -1,0 +1,53 @@
+name: Build Sophia MUMA
+
+# Compila a Sophia para o robozinho verde (Spotpear ESP32-S3 1.54 MUMA)
+# em pt-BR e publica o merged-binary.bin (grava em 0x0; serve no web.esphome.io).
+# Roda a cada push que mexa na placa ou manualmente em
+# Actions > Build Sophia MUMA > Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      wake_word:
+        description: 'Palavra de ativação'
+        type: choice
+        default: wn9_sophia_tts
+        options:
+          - wn9_sophia_tts
+          - wn9_jarvis_tts
+          - wn9_hiesp
+          - wn9_alexa
+          - wn9_computer_tts
+  push:
+    paths:
+      - 'main/boards/spotpear/sp-esp32-s3-1.54-muma/**'
+      - '.github/workflows/sophia-muma.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sp-esp32-s3-1.54-muma
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v6.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build
+        shell: bash
+        env:
+          # Em push (sem escolha manual) usa Sophia.
+          WAKE_WORD: ${{ inputs.wake_word || 'wn9_sophia_tts' }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          source "$IDF_PATH/export.sh"
+          python scripts/build.py spotpear/sp-esp32-s3-1.54-muma --name sp-esp32-s3-1.54-muma --language pt-BR --wake-word "$WAKE_WORD"
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: sophia-muma-pt-BR-${{ inputs.wake_word || 'wn9_sophia_tts' }}
+          path: build/merged-binary.bin
+          if-no-files-found: error
