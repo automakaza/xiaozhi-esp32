@@ -30,6 +30,12 @@ static const int kVaoOlhos = 36;     // espaço entre os olhos (px reais)
 static const int kTopo = 30;         // abaixo da barra de status
 static const int kRodapeLivre = 10;  // margem embaixo sem texto
 static const int kRodapeTexto = 42;  // altura reservada à barra de texto
+static const int kBarrasAltura = 36; // altura máxima das barras de frequência
+static const int kBarrasMargem = 6;  // espaço entre as barras e o texto
+static const int kBarraLargura = 12;
+static const int kBarraVao = 4;
+// Altura do centro dos olhos dentro da área livre (%): acima do meio, como num rosto
+static const int kCentroOlhosPct = 42;
 
 // Altura relativa durante a piscada (em %).
 static const int kBlinkScale[] = {100, 55, 8, 55, 100};
@@ -143,6 +149,13 @@ void EyesLcdDisplay::SetupUI() {
         lid_bottom_[i] = lv_obj_create(eye_[i]);
         StyleBox(lid_bottom_[i], lv_color_hex(kCorFundo), LV_RADIUS_CIRCLE);
         lv_obj_add_flag(lid_bottom_[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Barras de frequência (equalizador): escondidas até ter música/rádio
+    for (int i = 0; i < SpectrumAnalyzer::kBands; i++) {
+        bars_[i] = lv_obj_create(layer_);
+        StyleBox(bars_[i], lv_color_hex(CorArcoIris(i * 300 / SpectrumAnalyzer::kBands)), 3);
+        lv_obj_add_flag(bars_[i], LV_OBJ_FLAG_HIDDEN);
     }
 
     // Fica logo acima do emoji padrão e abaixo da imagem de prévia, das
@@ -266,9 +279,13 @@ void EyesLcdDisplay::ApplyShape() {
         return;
     }
     const int area_top = kTopo;
-    const int area_bottom = height_ - (text_visible_ ? kRodapeTexto : kRodapeLivre);
-    const int center_y = (area_top + area_bottom) / 2;
-    const int scale_area = text_visible_ ? 80 : 100;  // olhos menores com texto
+    int area_bottom = height_ - (text_visible_ ? kRodapeTexto : kRodapeLivre);
+    if (bars_visible_) {
+        area_bottom = height_ - kRodapeTexto - kBarrasMargem - kBarrasAltura - 4;
+    }
+    const int center_y = area_top + (area_bottom - area_top) * kCentroOlhosPct / 100;
+    // olhos menores com texto e menores ainda com as barras
+    const int scale_area = bars_visible_ ? 70 : (text_visible_ ? 80 : 100);
     const int blink = kBlinkScale[blink_step_];
 
     for (int i = 0; i < 2; i++) {
@@ -435,6 +452,20 @@ void EyesLcdDisplay::SetChatMessage(const char* role, const char* content) {
         if (texto.empty() && !mostrando_musica) {
             return;
         }
+    } else if (role != nullptr && strcmp(role, "assistant") == 0) {
+        // A rádio do servidor manda a legenda "Tocando <nome da rádio>"
+        DisplayLockGuard lock(this);
+        radio_on_ = texto.compare(0, 7, "Tocando") == 0;
+    } else if (role != nullptr && strcmp(role, "user") == 0) {
+        DisplayLockGuard lock(this);
+        radio_on_ = false;
+    }
+    if (role != nullptr && strcmp(role, "music") != 0 && texto.empty()) {
+        DisplayLockGuard lock(this);
+        radio_on_ = false;
+    }
+    if (role != nullptr && strcmp(role, "music") == 0) {
+        // já tratado acima
     } else if (texto.empty() && !music_text_.empty()) {
         texto = music_text_;
     }
@@ -455,6 +486,10 @@ void EyesLcdDisplay::RemoveChatMessage(const char* role, const char* content) {
 }
 
 void EyesLcdDisplay::ClearChatMessages() {
+    {
+        DisplayLockGuard lock(this);
+        radio_on_ = false;
+    }
     SpiLcdDisplay::ClearChatMessages();
     RestoreMusicText();
 }
@@ -501,6 +536,52 @@ void EyesLcdDisplay::UpdateColor() {
     }
 }
 
+bool EyesLcdDisplay::WantsBars() const {
+    return spectrum_ != nullptr && (!music_text_.empty() || radio_on_) && text_visible_;
+}
+
+// Barras sobem rápido e caem devagar, como um equalizador de som
+void EyesLcdDisplay::UpdateBars() {
+    bool querer = WantsBars();
+    if (spectrum_ != nullptr) {
+        spectrum_->SetEnabled(querer);
+    }
+    if (querer != bars_visible_) {
+        bars_visible_ = querer;
+        for (int i = 0; i < SpectrumAnalyzer::kBands; i++) {
+            bar_h_[i] = 0;
+            if (querer) {
+                lv_obj_remove_flag(bars_[i], LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(bars_[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+        ApplyShape();  // olhos sobem/descem para dar espaço
+    }
+    if (!bars_visible_) {
+        return;
+    }
+    const int n = SpectrumAnalyzer::kBands;
+    const int total = n * kBarraLargura + (n - 1) * kBarraVao;
+    const int x0 = (width_ - total) / 2;
+    const int base = height_ - kRodapeTexto - kBarrasMargem;
+    for (int i = 0; i < n; i++) {
+        int alvo = 3 + spectrum_->Level(i) * (kBarrasAltura - 3) / 100;
+        if (alvo > bar_h_[i]) {
+            bar_h_[i] = alvo;
+        } else {
+            bar_h_[i] = std::max(3, bar_h_[i] - 4);
+        }
+        lv_obj_set_size(bars_[i], kBarraLargura, bar_h_[i]);
+        lv_obj_set_pos(bars_[i], x0 + i * (kBarraLargura + kBarraVao), base - bar_h_[i]);
+        if (dancing_) {
+            // na música do cartão, as cores das barras andam junto com os olhos
+            lv_obj_set_style_bg_color(
+                bars_[i], lv_color_hex(CorArcoIris((matiz_ + i * 300 / n) % 360)), 0);
+        }
+    }
+}
+
 void EyesLcdDisplay::TimerCallback(lv_timer_t* timer) {
     auto self = static_cast<EyesLcdDisplay*>(lv_timer_get_user_data(timer));
     if (self != nullptr) {
@@ -516,6 +597,7 @@ void EyesLcdDisplay::OnTimer() {
     uint32_t now = lv_tick_get();
     bool changed = false;
     UpdateColor();
+    UpdateBars();
 
     if (piscadinha_ms_ != 0 && now >= piscadinha_ms_) {
         piscadinha_ms_ = 0;

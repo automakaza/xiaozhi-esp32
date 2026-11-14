@@ -15,6 +15,7 @@
 // ============================================================================
 
 #include "display/lcd_display.h"
+#include "spectrum_analyzer.h"
 
 #include <functional>
 #include <string>
@@ -40,6 +41,9 @@ public:
     // pensando, falando...). A troca é suave. Durante a música os olhos
     // ficam passeando pelas cores do arco-íris; dormindo, ficam azul-escuros.
     void SetBaseColor(uint32_t rgb);
+
+    // Barras de frequência acima do título da música/rádio
+    void SetSpectrum(SpectrumAnalyzer* analyzer) { spectrum_ = analyzer; }
 
     // Chamado quando chega o texto do que a pessoa falou ("entendi")
     void SetOnUserText(std::function<void()> callback) { on_user_text_ = std::move(callback); }
@@ -82,7 +86,12 @@ private:
     std::function<void()> on_user_text_;
     uint32_t base_color_ = 0x8EE6F2;  // alvo da cor (estado)
     uint32_t cor_atual_ = 0x8EE6F2;   // cor mostrada agora (vai até o alvo)
-    int matiz_ = 0;                   // arco-íris da música (0..359)        // nome da música (volta quando a conversa limpa a tela)
+    int matiz_ = 0;                   // arco-íris da música (0..359)
+    SpectrumAnalyzer* spectrum_ = nullptr;
+    lv_obj_t* bars_[SpectrumAnalyzer::kBands] = {};
+    int bar_h_[SpectrumAnalyzer::kBands] = {};
+    bool radio_on_ = false;           // legenda "Tocando ..." da rádio do servidor
+    bool bars_visible_ = false;        // nome da música (volta quando a conversa limpa a tela)
     int blink_step_ = 0;
     int look_dx_ = 0;
     int look_dy_ = 0;
@@ -104,6 +113,8 @@ private:
     void UpdateTextVisible();
     void RestoreMusicText();
     void UpdateColor();
+    void UpdateBars();
+    bool WantsBars() const;
     static void TimerCallback(lv_timer_t* timer);
     void OnTimer();
 };

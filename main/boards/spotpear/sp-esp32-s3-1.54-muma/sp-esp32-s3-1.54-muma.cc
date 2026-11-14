@@ -3,6 +3,7 @@
 #include "display/lcd_display.h"
 #include "eyes_lcd_display.h"
 #include "sd_music_player.h"
+#include "spectrum_analyzer.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
@@ -63,6 +64,23 @@ private:
     uint8_t* read_buffer_ = nullptr;
     TouchPoint_t tp_;
 };
+
+// Sophia: o mesmo codec ES8311, mas entregando o som que vai tocar ao
+// analisador de frequências (barras do equalizador na tela).
+class SophiaEs8311Codec : public Es8311AudioCodec {
+public:
+    using Es8311AudioCodec::Es8311AudioCodec;
+    SpectrumAnalyzer* spectrum = nullptr;
+
+    virtual void OutputData(std::vector<int16_t>& data) override {
+        if (spectrum != nullptr) {
+            spectrum->Feed(data);
+        }
+        Es8311AudioCodec::OutputData(data);
+    }
+};
+
+static SpectrumAnalyzer g_spectrum(AUDIO_OUTPUT_SAMPLE_RATE);
 
 class Spotpear_esp32_s3_lcd_1_54 : public WifiBoard {
 private:
@@ -262,6 +280,7 @@ private:
             Application::GetInstance().PlaySound(Lang::Sounds::OGG_SUCCESS);
 #endif
         });
+        eyes_->SetSpectrum(&g_spectrum);
         display_ = eyes_;
 #else
         display_ = new SpiLcdDisplay(panel_io, panel,
@@ -383,7 +402,7 @@ public:
     }
 
     virtual AudioCodec* GetAudioCodec() override {
-        static Es8311AudioCodec audio_codec(codec_i2c_bus_, I2C_NUM_0, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
+        static SophiaEs8311Codec audio_codec(codec_i2c_bus_, I2C_NUM_0, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN,
             AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR);
         // Sophia: microfone mais sensível que o padrão (30 dB) para ouvir a
@@ -391,6 +410,7 @@ public:
         static bool ganho_ajustado = false;
         if (!ganho_ajustado) {
             audio_codec.SetInputGain(AUDIO_MIC_GAIN_DB);
+            audio_codec.spectrum = &g_spectrum;
             ganho_ajustado = true;
         }
         return &audio_codec;
