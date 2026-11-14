@@ -295,16 +295,28 @@ private:
         int volume_original = -1;
         int volume_bipe = 0;
         TickType_t restaurar_em = 0;
+        bool havia_som = false;
         while (true) {
             auto codec = GetAudioCodec();
             auto st = app.GetDeviceState();
             TickType_t agora = xTaskGetTickCount();
 
+            // Enquanto ociosa, lembra se tem som saindo (música do cartão etc.).
+            // Lido antes do bipe entrar na fila, por isso fica guardado.
+            if (st == kDeviceStateIdle) {
+                havia_som = !app.GetAudioService().IsPlaybackIdle();
+#if SD_MUSIC_PLAYER
+                havia_som = havia_som || SdMusicPlayer::GetInstance().IsPlaying();
+#endif
+            }
+
             if (st != anterior) {
                 // Bipe de ativação (vem logo depois de ouvir "Sophia" ou do botão)
+                // Não reforça se havia música tocando antes de chamar: o reforço
+                // pegaria o finalzinho da música e daria um estouro de volume.
                 if (st == kDeviceStateListening &&
                     (anterior == kDeviceStateIdle || anterior == kDeviceStateConnecting) &&
-                    volume_original < 0) {
+                    volume_original < 0 && !havia_som) {
                     int v = codec->output_volume();
                     int alvo = std::min(100, std::max(v + BIPE_REFORCO, BIPE_VOLUME_MINIMO));
                     if (alvo > v) {
