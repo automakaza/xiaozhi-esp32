@@ -339,6 +339,11 @@ bool EyesLcdDisplay::SetEmotion(const char* emotion) {
     bool known = false;
     {
         DisplayLockGuard lock(this);
+        // Já dançando: não reinicia a animação
+        if (emotion != nullptr && strcmp(emotion, "music") == 0 && last_emotion_ == "music" &&
+            layer_ != nullptr && !lv_obj_has_flag(layer_, LV_OBJ_FLAG_HIDDEN)) {
+            return true;
+        }
         if (layer_ != nullptr) {
             std::string anterior = last_emotion_;
             known = SelectShapes(emotion);
@@ -389,9 +394,17 @@ void EyesLcdDisplay::SetSono(int nivel) {
 void EyesLcdDisplay::SetChatMessage(const char* role, const char* content) {
     std::string texto = (content != nullptr) ? content : "";
     if (role != nullptr && strcmp(role, "music") == 0) {
+        bool mostrando_musica = false;
         {
             DisplayLockGuard lock(this);
+            mostrando_musica = chat_message_label_ != nullptr && !music_text_.empty() &&
+                               music_text_ == lv_label_get_text(chat_message_label_);
             music_text_ = texto;
+        }
+        // Fim da música: só apaga a barra se ela ainda mostra o nome da música
+        // (não apaga uma legenda da conversa que esteja na tela).
+        if (texto.empty() && !mostrando_musica) {
+            return;
         }
     } else if (texto.empty() && !music_text_.empty()) {
         texto = music_text_;

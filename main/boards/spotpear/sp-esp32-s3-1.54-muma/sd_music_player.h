@@ -65,10 +65,11 @@ private:
     Result StreamDecoded(FILE* f, const std::string& path, int type);
     bool Gate(Result& result);
     void ShowNowPlaying();
-    void ClearNowPlaying();
+    void ClearNowPlaying(bool reset_eyes);
 
     bool mounted_ = false;
     int music_volume_ = 100;
+    uint32_t last_eyes_ms_ = 0;
     int pin_clk_ = -1;
     int pin_cmd_ = -1;
     int pin_d0_ = -1;

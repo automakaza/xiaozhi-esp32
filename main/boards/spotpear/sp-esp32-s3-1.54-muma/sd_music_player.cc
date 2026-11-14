@@ -583,13 +583,15 @@ void SdMusicPlayer::ShowNowPlaying() {
     display->SetChatMessage("music", ("Tocando: " + nome).c_str());
 }
 
-void SdMusicPlayer::ClearNowPlaying() {
+void SdMusicPlayer::ClearNowPlaying(bool reset_eyes) {
     auto display = Board::GetInstance().GetDisplay();
     if (display == nullptr) {
         return;
     }
     display->SetChatMessage("music", "");
-    display->SetEmotion("neutral");
+    if (reset_eyes) {
+        display->SetEmotion("neutral");  // em conversa, quem cuida dos olhos é a Sophia
+    }
 }
 
 // Antes de entregar cada pedaço de áudio: obedece parar/pular/nova música e
@@ -616,6 +618,17 @@ bool SdMusicPlayer::Gate(Result& result) {
         }
         ESP_LOGI(TAG, "Música retomada");
         ShowNowPlaying();  // a conversa limpou a tela
+    } else {
+        // Garante os olhos dançando mesmo que algo os tenha trocado (ex.: fim de uma
+        // conversa curta que a pausa não chegou a pegar)
+        uint32_t agora = pdTICKS_TO_MS(xTaskGetTickCount());
+        if (agora - last_eyes_ms_ > 3000) {
+            last_eyes_ms_ = agora;
+            auto display = Board::GetInstance().GetDisplay();
+            if (display != nullptr) {
+                display->SetEmotion("music");
+            }
+        }
     }
     return true;
 }
@@ -881,8 +894,9 @@ void SdMusicPlayer::Task() {
                 }
             }
             playing_ = false;
-            if (app.GetDeviceState() == kDeviceStateIdle && !play_pending_) {
-                ClearNowPlaying();
+            if (!play_pending_) {
+                // Tira o nome da tela mesmo que tenha parado no meio de uma conversa
+                ClearNowPlaying(app.GetDeviceState() == kDeviceStateIdle);
             }
             {
                 std::lock_guard<std::mutex> lock(mutex_);
