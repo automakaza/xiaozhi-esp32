@@ -9,6 +9,7 @@
 
 #include <esp_log.h>
 #include <esp_random.h>
+#include <esp_timer.h>
 
 #define TAG "EyesLcdDisplay"
 
@@ -566,7 +567,8 @@ void EyesLcdDisplay::UpdateBars() {
     const int x0 = (width_ - total) / 2;
     const int base = height_ - kRodapeTexto - kBarrasMargem;
     // Sem som chegando (pausa, fim da fala), as barras descem
-    const bool com_som = spectrum_->Active(lv_tick_get());
+    // Mesmo relógio do analisador (esp_timer); o lv_tick começa em outra hora
+    const bool com_som = spectrum_->Active((uint32_t)(esp_timer_get_time() / 1000));
     for (int i = 0; i < n; i++) {
         int alvo = 3 + (com_som ? spectrum_->Level(i) * (kBarrasAltura - 3) / 100 : 0);
         if (alvo > bar_h_[i]) {
