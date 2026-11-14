@@ -451,8 +451,7 @@ void SdMusicPlayer::RegisterTools() {
     mcp.AddTool(
         "self.music.play",
         "Toca músicas do cartão SD do próprio aparelho (não é rádio nem internet). "
-        "IMPORTANTE: se uma rádio estiver tocando, chame parar_radio ANTES desta ferramenta, "
-        "senão a rádio volta e cobre a música. "
+        "Se uma RÁDIO estiver tocando, chame parar_radio antes desta ferramenta. "
         "'busca' é parte do nome da música ou da pasta/playlist; vazio toca todas. "
         "'aleatorio' embaralha. A música começa assim que você terminar de responder, "
         "então responda bem curto (ex.: 'Tocando!'). Se te chamarem durante a música ela "
@@ -491,8 +490,9 @@ void SdMusicPlayer::RegisterTools() {
             play_pending_ = true;
             stop_req_ = true;  // interrompe o que estiver tocando
             xTaskNotifyGive(task_);
-            return std::string("Vai tocar ") + std::to_string(total) +
-                   (total == 1 ? " música: " : " músicas, começando por: ") + primeira;
+            return std::string("Vai tocar do cartão SD ") + std::to_string(total) +
+                   (total == 1 ? " música: " : " músicas, começando por: ") + primeira +
+                   ". Para parar depois, use self.music.stop (não parar_radio).";
         });
 
     mcp.AddTool("self.music.next", "Pula para a próxima música do cartão SD.", PropertyList(),
@@ -504,7 +504,11 @@ void SdMusicPlayer::RegisterTools() {
                     return true;
                 });
 
-    mcp.AddTool("self.music.stop", "Para a música do cartão SD.", PropertyList(),
+    mcp.AddTool("self.music.stop",
+                "Para a música do cartão SD. Use SEMPRE que pedirem para parar, pausar, "
+                "desligar ou tirar a música enquanto uma música do cartão estiver tocando "
+                "(parar_radio NÃO para a música do cartão; na dúvida, chame os dois).",
+                PropertyList(),
                 [this](const PropertyList&) -> ToolResult {
                     play_pending_ = false;
                     stop_req_ = true;

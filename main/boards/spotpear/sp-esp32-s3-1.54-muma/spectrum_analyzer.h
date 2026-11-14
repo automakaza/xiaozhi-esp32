@@ -31,6 +31,11 @@ public:
     void SetEnabled(bool enabled) { enabled_.store(enabled, std::memory_order_relaxed); }
     bool Enabled() const { return enabled_.load(std::memory_order_relaxed); }
 
+    // true se chegou áudio nos últimos ms (sem som, as barras devem cair)
+    bool Active(uint32_t now_ms, uint32_t ms = 200) const {
+        return now_ms - last_feed_ms_.load(std::memory_order_relaxed) < ms;
+    }
+
 private:
     static const int kFft = 256;
 
@@ -43,6 +48,7 @@ private:
     float peak_db_ = -20.0f;
     std::atomic<uint8_t> levels_[kBands];
     std::atomic<bool> enabled_{false};
+    std::atomic<uint32_t> last_feed_ms_{0};
 
     void Analyze(const int16_t* samples);
 };

@@ -90,7 +90,7 @@ private:
     SpectrumAnalyzer* spectrum_ = nullptr;
     lv_obj_t* bars_[SpectrumAnalyzer::kBands] = {};
     int bar_h_[SpectrumAnalyzer::kBands] = {};
-    bool radio_on_ = false;           // legenda "Tocando ..." da rádio do servidor
+    bool falando_ = false;            // Sophia falando (ou rádio do servidor tocando)
     bool bars_visible_ = false;        // nome da música (volta quando a conversa limpa a tela)
     int blink_step_ = 0;
     int look_dx_ = 0;

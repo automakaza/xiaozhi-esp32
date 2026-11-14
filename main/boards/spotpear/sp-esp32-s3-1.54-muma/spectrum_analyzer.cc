@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <esp_timer.h>
+
 SpectrumAnalyzer::SpectrumAnalyzer(int sample_rate) {
     const float pi = 3.14159265f;
     for (int i = 0; i < kFft; i++) {
@@ -41,6 +43,7 @@ void SpectrumAnalyzer::Feed(const std::vector<int16_t>& pcm) {
     }
     // Usa o trecho final do bloco (é o que está mais perto de tocar)
     Analyze(pcm.data() + pcm.size() - kFft);
+    last_feed_ms_.store((uint32_t)(esp_timer_get_time() / 1000), std::memory_order_relaxed);
 }
 
 void SpectrumAnalyzer::Analyze(const int16_t* samples) {

@@ -453,16 +453,16 @@ void EyesLcdDisplay::SetChatMessage(const char* role, const char* content) {
             return;
         }
     } else if (role != nullptr && strcmp(role, "assistant") == 0) {
-        // A rádio do servidor manda a legenda "Tocando <nome da rádio>"
+        // Legenda da Sophia (ou "Tocando <rádio>"): mostra o equalizador da voz
         DisplayLockGuard lock(this);
-        radio_on_ = texto.compare(0, 7, "Tocando") == 0;
+        falando_ = !texto.empty();
     } else if (role != nullptr && strcmp(role, "user") == 0) {
         DisplayLockGuard lock(this);
-        radio_on_ = false;
+        falando_ = false;
     }
     if (role != nullptr && strcmp(role, "music") != 0 && texto.empty()) {
         DisplayLockGuard lock(this);
-        radio_on_ = false;
+        falando_ = false;
     }
     if (role != nullptr && strcmp(role, "music") == 0) {
         // já tratado acima
@@ -488,7 +488,7 @@ void EyesLcdDisplay::RemoveChatMessage(const char* role, const char* content) {
 void EyesLcdDisplay::ClearChatMessages() {
     {
         DisplayLockGuard lock(this);
-        radio_on_ = false;
+        falando_ = false;
     }
     SpiLcdDisplay::ClearChatMessages();
     RestoreMusicText();
@@ -537,7 +537,7 @@ void EyesLcdDisplay::UpdateColor() {
 }
 
 bool EyesLcdDisplay::WantsBars() const {
-    return spectrum_ != nullptr && (!music_text_.empty() || radio_on_) && text_visible_;
+    return spectrum_ != nullptr && (!music_text_.empty() || falando_) && text_visible_;
 }
 
 // Barras sobem rápido e caem devagar, como um equalizador de som
@@ -565,8 +565,10 @@ void EyesLcdDisplay::UpdateBars() {
     const int total = n * kBarraLargura + (n - 1) * kBarraVao;
     const int x0 = (width_ - total) / 2;
     const int base = height_ - kRodapeTexto - kBarrasMargem;
+    // Sem som chegando (pausa, fim da fala), as barras descem
+    const bool com_som = spectrum_->Active(lv_tick_get());
     for (int i = 0; i < n; i++) {
-        int alvo = 3 + spectrum_->Level(i) * (kBarrasAltura - 3) / 100;
+        int alvo = 3 + (com_som ? spectrum_->Level(i) * (kBarrasAltura - 3) / 100 : 0);
         if (alvo > bar_h_[i]) {
             bar_h_[i] = alvo;
         } else {
