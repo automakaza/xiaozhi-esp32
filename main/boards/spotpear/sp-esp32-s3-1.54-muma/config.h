@@ -21,7 +21,7 @@
 
 // Sophia: ganho do microfone em dB (padrão do Xiaozhi = 30). Mais alto ouve
 // de mais longe, mas pode saturar (36 piorou a wake word no teste de 13/11).
-#define AUDIO_MIC_GAIN_DB        30
+#define AUDIO_MIC_GAIN_DB        25
 
 #define BUILTIN_LED_GPIO        GPIO_NUM_48
 #define BOOT_BUTTON_GPIO        GPIO_NUM_0
