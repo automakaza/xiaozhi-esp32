@@ -60,6 +60,22 @@
 #define POWER_ADC_UNIT ADC_UNIT_1
 #define POWER_ADC_CHANNEL ADC_CHANNEL_0
 
+// Sophia: bipe de ativação mais alto que o volume da voz (sobe o volume só
+// durante o bipe). Nunca fica abaixo de BIPE_VOLUME_MINIMO.
+#define BIPE_REFORCO          20
+#define BIPE_VOLUME_MINIMO    50
+
+// Som de "entendi" quando ela termina de ouvir (1 = liga, 0 = desliga)
+#define SOM_ENTENDI           1
+
+// Cores dos olhos (RGB) conforme o estado
+#define COR_OLHOS_PADRAO      0x8EE6F2   // ciano: esperando / falando
+#define COR_OLHOS_OUVINDO     0x7CFC9A   // verde: ouvindo você
+#define COR_OLHOS_PENSANDO    0xC9A0FF   // lilás: entendeu, pensando na resposta
+#define COR_OLHOS_CONECTANDO  0xFFD166   // amarelo: conectando ao servidor
+#define COR_OLHOS_ERRO        0xFF6B6B   // vermelho: erro
+// (música: arco-íris passeando; dormindo: azul-escuro)
+
 // Cartão SD (SDMMC 1 bit) para o player de músicas da Sophia
 #define SD_MUSIC_PLAYER   1
 #define SD_PIN_CLK        GPIO_NUM_17
@@ -68,7 +84,7 @@
 #define SD_PIN_D3         GPIO_NUM_13
 // Volume da música em relação à voz (%). Mais baixo = ela ouve melhor o
 // "Sophia" com música tocando (o robozinho não tem cancelamento de eco).
-#define SD_MUSIC_VOLUME   55
+#define SD_MUSIC_VOLUME   100
 
 #define DISPLAY_SPI_SCLK_HZ     (40 * 1000 * 1000)
 

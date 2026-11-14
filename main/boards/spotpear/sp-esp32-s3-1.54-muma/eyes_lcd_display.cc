@@ -43,6 +43,35 @@ static uint32_t RandomBetween(uint32_t min, uint32_t max) {
     return min + (esp_random() % (max - min + 1));
 }
 
+// Mistura duas cores RGB (t de 0 a 100)
+static uint32_t MisturaCor(uint32_t a, uint32_t b, int t) {
+    auto canal = [t](uint32_t x, uint32_t y, int sh) {
+        int ca = (x >> sh) & 0xFF, cb = (y >> sh) & 0xFF;
+        return (uint32_t)(ca + (cb - ca) * t / 100) << sh;
+    };
+    return canal(a, b, 16) | canal(a, b, 8) | canal(a, b, 0);
+}
+
+// Matiz (0..359) -> RGB pastel (saturação ~45%, brilho máximo)
+static uint32_t CorArcoIris(int h) {
+    const int v = 255, minimo = 140;  // pastel: nenhum canal abaixo de 140
+    int setor = (h / 60) % 6, f = (h % 60) * 255 / 60;
+    int sobe = minimo + (v - minimo) * f / 255;
+    int desce = v - (v - minimo) * f / 255;
+    int r, g, b;
+    switch (setor) {
+        case 0: r = v; g = sobe; b = minimo; break;
+        case 1: r = desce; g = v; b = minimo; break;
+        case 2: r = minimo; g = v; b = sobe; break;
+        case 3: r = minimo; g = desce; b = v; break;
+        case 4: r = sobe; g = minimo; b = v; break;
+        default: r = v; g = minimo; b = desce; break;
+    }
+    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+static const uint32_t kCorDormindo = 0x3A6EA5;
+
 EyesLcdDisplay::EyesLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
                                int width, int height, int offset_x, int offset_y, bool mirror_x,
                                bool mirror_y, bool swap_xy)
@@ -410,8 +439,14 @@ void EyesLcdDisplay::SetChatMessage(const char* role, const char* content) {
         texto = music_text_;
     }
     SpiLcdDisplay::SetChatMessage(role, texto.c_str());
-    DisplayLockGuard lock(this);
-    UpdateTextVisible();
+    {
+        DisplayLockGuard lock(this);
+        UpdateTextVisible();
+    }
+    if (role != nullptr && strcmp(role, "user") == 0 && content != nullptr && content[0] != '\0' &&
+        on_user_text_) {
+        on_user_text_();
+    }
 }
 
 void EyesLcdDisplay::RemoveChatMessage(const char* role, const char* content) {
@@ -437,6 +472,35 @@ void EyesLcdDisplay::RestoreMusicText() {
     UpdateTextVisible();
 }
 
+void EyesLcdDisplay::SetBaseColor(uint32_t rgb) {
+    DisplayLockGuard lock(this);
+    base_color_ = rgb;
+}
+
+// Leva a cor dos olhos aos poucos até o alvo. Roda no timer do LVGL.
+void EyesLcdDisplay::UpdateColor() {
+    uint32_t alvo = base_color_;
+    if (dancing_) {
+        matiz_ = (matiz_ + 3) % 360;  // volta completa em ~6 s
+        alvo = CorArcoIris(matiz_);
+    } else if (sono_ >= 1 || last_emotion_ == "sleepy") {
+        alvo = kCorDormindo;
+    }
+    if (alvo == cor_atual_) {
+        return;
+    }
+    uint32_t nova = dancing_ ? alvo : MisturaCor(cor_atual_, alvo, 35);
+    if (nova == cor_atual_) {
+        nova = alvo;  // últimos passos
+    }
+    cor_atual_ = nova;
+    for (int i = 0; i < 2; i++) {
+        if (eye_[i] != nullptr) {
+            lv_obj_set_style_bg_color(eye_[i], lv_color_hex(cor_atual_), 0);
+        }
+    }
+}
+
 void EyesLcdDisplay::TimerCallback(lv_timer_t* timer) {
     auto self = static_cast<EyesLcdDisplay*>(lv_timer_get_user_data(timer));
     if (self != nullptr) {
@@ -451,6 +515,7 @@ void EyesLcdDisplay::OnTimer() {
     }
     uint32_t now = lv_tick_get();
     bool changed = false;
+    UpdateColor();
 
     if (piscadinha_ms_ != 0 && now >= piscadinha_ms_) {
         piscadinha_ms_ = 0;

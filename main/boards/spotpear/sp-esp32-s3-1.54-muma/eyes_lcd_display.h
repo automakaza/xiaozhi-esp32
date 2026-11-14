@@ -16,6 +16,7 @@
 
 #include "display/lcd_display.h"
 
+#include <functional>
 #include <string>
 
 class EyesLcdDisplay : public SpiLcdDisplay {
@@ -34,6 +35,14 @@ public:
     // Sono: 0 = acordada, 1 = sonolenta (pálpebras meio fechadas),
     // 2 = dormindo (olhos fechados).
     void SetSono(int nivel);
+
+    // Cor base dos olhos (definida pela placa conforme o estado: ouvindo,
+    // pensando, falando...). A troca é suave. Durante a música os olhos
+    // ficam passeando pelas cores do arco-íris; dormindo, ficam azul-escuros.
+    void SetBaseColor(uint32_t rgb);
+
+    // Chamado quando chega o texto do que a pessoa falou ("entendi")
+    void SetOnUserText(std::function<void()> callback) { on_user_text_ = std::move(callback); }
 
 private:
     struct EyeShape {
@@ -69,7 +78,11 @@ private:
     bool dancing_ = false;          // emoção "music": balança no ritmo
     int dance_step_ = 0;
     uint32_t next_dance_ms_ = 0;
-    std::string music_text_;        // nome da música (volta quando a conversa limpa a tela)
+    std::string music_text_;
+    std::function<void()> on_user_text_;
+    uint32_t base_color_ = 0x8EE6F2;  // alvo da cor (estado)
+    uint32_t cor_atual_ = 0x8EE6F2;   // cor mostrada agora (vai até o alvo)
+    int matiz_ = 0;                   // arco-íris da música (0..359)        // nome da música (volta quando a conversa limpa a tela)
     int blink_step_ = 0;
     int look_dx_ = 0;
     int look_dy_ = 0;
@@ -90,6 +103,7 @@ private:
     void ApplyShape();
     void UpdateTextVisible();
     void RestoreMusicText();
+    void UpdateColor();
     static void TimerCallback(lv_timer_t* timer);
     void OnTimer();
 };

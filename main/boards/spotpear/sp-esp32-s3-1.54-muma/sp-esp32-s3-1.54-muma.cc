@@ -9,6 +9,8 @@
 #include "led/single_led.h"
 #include "assets/lang_config.h"
 #include <esp_log.h>
+#include <atomic>
+#include <algorithm>
 #include <driver/i2c_master.h>
 #include "system_reset.h"
 
@@ -68,6 +70,10 @@ private:
     i2c_master_bus_handle_t i2c_bus_;
     Button boot_button_;
     Display* display_;
+#if DISPLAY_ROBOT_EYES
+    EyesLcdDisplay* eyes_ = nullptr;
+#endif
+    std::atomic<bool> pensando_{false};  // já ouviu, esperando a resposta
     esp_timer_handle_t touchpad_timer_;
     Cst816d* cst816d_;
     esp_io_expander_handle_t io_expander_ = NULL;
@@ -247,12 +253,76 @@ private:
 
 #if DISPLAY_ROBOT_EYES
         // Sophia: olhos animados coloridos no lugar do emoji padrão
-        display_ = new EyesLcdDisplay(panel_io, panel,
-                                      DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+        eyes_ = new EyesLcdDisplay(panel_io, panel,
+                                   DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+        // "Entendi": chegou o texto do que a pessoa falou
+        eyes_->SetOnUserText([this]() {
+            pensando_ = true;
+#if SOM_ENTENDI
+            Application::GetInstance().PlaySound(Lang::Sounds::OGG_SUCCESS);
+#endif
+        });
+        display_ = eyes_;
 #else
         display_ = new SpiLcdDisplay(panel_io, panel,
                                      DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
 #endif
+    }
+
+    // Sophia: cor dos olhos conforme o estado e bipe de ativação mais alto
+    void SophiaUiTask() {
+        auto& app = Application::GetInstance();
+        DeviceState anterior = kDeviceStateUnknown;
+        int volume_original = -1;
+        int volume_bipe = 0;
+        TickType_t restaurar_em = 0;
+        while (true) {
+            auto codec = GetAudioCodec();
+            auto st = app.GetDeviceState();
+            TickType_t agora = xTaskGetTickCount();
+
+            if (st != anterior) {
+                // Bipe de ativação (vem logo depois de ouvir "Sophia" ou do botão)
+                if (st == kDeviceStateListening &&
+                    (anterior == kDeviceStateIdle || anterior == kDeviceStateConnecting) &&
+                    volume_original < 0) {
+                    int v = codec->output_volume();
+                    int alvo = std::min(100, std::max(v + BIPE_REFORCO, BIPE_VOLUME_MINIMO));
+                    if (alvo > v) {
+                        codec->SetOutputVolume(alvo);
+                        volume_original = v;
+                        volume_bipe = alvo;
+                        restaurar_em = agora + pdMS_TO_TICKS(700);
+                    }
+                }
+                if (st != kDeviceStateListening) {
+                    pensando_ = false;
+                }
+                anterior = st;
+            }
+            if (volume_original >= 0 && agora >= restaurar_em) {
+                // Só volta se ninguém mexeu no volume nesse meio tempo
+                if (codec->output_volume() == volume_bipe) {
+                    codec->SetOutputVolume(volume_original);
+                }
+                volume_original = -1;
+            }
+
+#if DISPLAY_ROBOT_EYES
+            if (eyes_ != nullptr) {
+                uint32_t cor = COR_OLHOS_PADRAO;
+                if (st == kDeviceStateListening) {
+                    cor = pensando_ ? COR_OLHOS_PENSANDO : COR_OLHOS_OUVINDO;
+                } else if (st == kDeviceStateConnecting) {
+                    cor = COR_OLHOS_CONECTANDO;
+                } else if (st == kDeviceStateFatalError) {
+                    cor = COR_OLHOS_ERRO;
+                }
+                eyes_->SetBaseColor(cor);
+            }
+#endif
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
     }
 
     void InitializeButtons() {
@@ -292,6 +362,9 @@ public:
         InitializePowerManager();
         InitializeSt7789Display();
         InitializeButtons();
+        xTaskCreate([](void* arg) {
+            static_cast<Spotpear_esp32_s3_lcd_1_54*>(arg)->SophiaUiTask();
+        }, "sophia_ui", 3072, this, 2, nullptr);
         GetBacklight()->RestoreBrightness();
 #if SD_MUSIC_PLAYER
         SdMusicPlayer::GetInstance().Initialize(SD_PIN_CLK, SD_PIN_CMD, SD_PIN_D0, SD_PIN_D3,
