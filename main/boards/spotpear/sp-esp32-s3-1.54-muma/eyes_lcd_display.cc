@@ -127,6 +127,24 @@ void EyesLcdDisplay::SetupUI() {
         return;
     }
 
+    // Aviso de bateria fraca: em vez da caixa grande lá embaixo (que cobria as
+    // barras e cortava o texto), uma faixa fina no topo, com texto curto.
+    if (low_battery_popup_ != nullptr) {
+        lv_obj_set_size(low_battery_popup_, width_ - 16, 26);
+        lv_obj_align(low_battery_popup_, LV_ALIGN_TOP_MID, 0, 2);
+        lv_obj_set_style_radius(low_battery_popup_, 13, 0);
+        lv_obj_set_style_border_width(low_battery_popup_, 0, 0);
+        lv_obj_set_style_pad_all(low_battery_popup_, 0, 0);
+        lv_obj_set_style_bg_color(low_battery_popup_, lv_color_hex(0xD93636), 0);
+        lv_obj_set_style_bg_opa(low_battery_popup_, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(low_battery_popup_, LV_OBJ_FLAG_SCROLLABLE);
+        if (low_battery_label_ != nullptr) {
+            lv_label_set_long_mode(low_battery_label_, LV_LABEL_LONG_CLIP);
+            lv_label_set_text(low_battery_label_, "Bateria fraca - carregue");
+            lv_obj_center(low_battery_label_);
+        }
+    }
+
     layer_ = lv_obj_create(lv_screen_active());
     StyleBox(layer_, lv_color_hex(kCorFundo), 0);
     lv_obj_set_size(layer_, width_, height_);
