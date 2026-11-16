@@ -86,6 +86,14 @@
 // "Sophia" com música tocando (o robozinho não tem cancelamento de eco).
 #define SD_MUSIC_VOLUME   100
 
+// Cancelamento de eco por software (ouvir "Sophia" com música/rádio tocando).
+// 1 = liga, 0 = desliga (volta ao comportamento antigo, sem mexer em mais nada).
+// ATRASO: tempo entre o som ir para o I2S e sair no alto-falante. 0 é o
+// seguro (a referência nunca chega depois do eco). Se não cancelar bem,
+// testar 10 e depois 20.
+#define SOPHIA_AEC            1
+#define SOPHIA_AEC_ATRASO_MS  0
+
 #define DISPLAY_SPI_SCLK_HZ     (40 * 1000 * 1000)
 
 #endif // _BOARD_CONFIG_H_

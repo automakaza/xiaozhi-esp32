@@ -4,6 +4,7 @@
 #include "eyes_lcd_display.h"
 #include "sd_music_player.h"
 #include "spectrum_analyzer.h"
+#include "eco_referencia.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
@@ -67,17 +68,63 @@ private:
 
 // Sophia: o mesmo codec ES8311, mas entregando o som que vai tocar ao
 // analisador de frequências (barras do equalizador na tela).
+//
+// SOPHIA_AEC (config.h): também guarda esse som como "referência" e entrega
+// o microfone em 2 canais [mic, referência]. Com isso o AFE liga o
+// cancelamento de eco (AEC) enquanto escuta a palavra de ativação, e ela
+// consegue ouvir "Sophia" com música ou rádio tocando.
 class SophiaEs8311Codec : public Es8311AudioCodec {
 public:
     using Es8311AudioCodec::Es8311AudioCodec;
     SpectrumAnalyzer* spectrum = nullptr;
 
+    // Chamar UMA vez, antes do AudioService ler input_channels().
+    void HabilitarReferenciaEco(int atraso_ms) {
+        eco_ = new EcoReferencia(output_sample_rate_, atraso_ms);
+        if (!eco_->ok()) {
+            ESP_LOGE("SophiaAEC", "Sem memória para a referência de eco; AEC desligado");
+            delete eco_;
+            eco_ = nullptr;
+            return;
+        }
+        input_reference_ = true;
+        input_channels_ = 2;   // [mic, referência]
+        ESP_LOGI("SophiaAEC", "AEC por software ligado (atraso %d ms)", atraso_ms);
+    }
+
     virtual void OutputData(std::vector<int16_t>& data) override {
         if (spectrum != nullptr) {
             spectrum->Feed(data);
         }
+        if (eco_ != nullptr && output_enabled()) {
+            eco_->Gravar(data.data(), data.size());
+        }
         Es8311AudioCodec::OutputData(data);
     }
+
+    virtual bool InputData(std::vector<int16_t>& data) override {
+        if (eco_ == nullptr) {
+            return Es8311AudioCodec::InputData(data);
+        }
+        // data vem dimensionado para 2 canais intercalados
+        const size_t n = data.size() / 2;
+        mic_.resize(n);
+        ref_.resize(n);
+        if (!Es8311AudioCodec::InputData(mic_)) {
+            return false;
+        }
+        eco_->Ler(ref_.data(), n);
+        for (size_t i = 0; i < n; ++i) {
+            data[2 * i] = mic_[i];
+            data[2 * i + 1] = ref_[i];
+        }
+        return true;
+    }
+
+private:
+    EcoReferencia* eco_ = nullptr;
+    std::vector<int16_t> mic_;
+    std::vector<int16_t> ref_;
 };
 
 static SpectrumAnalyzer g_spectrum(AUDIO_OUTPUT_SAMPLE_RATE);
@@ -423,6 +470,9 @@ public:
         if (!ganho_ajustado) {
             audio_codec.SetInputGain(AUDIO_MIC_GAIN_DB);
             audio_codec.spectrum = &g_spectrum;
+#if SOPHIA_AEC
+            audio_codec.HabilitarReferenciaEco(SOPHIA_AEC_ATRASO_MS);
+#endif
             ganho_ajustado = true;
         }
         return &audio_codec;
