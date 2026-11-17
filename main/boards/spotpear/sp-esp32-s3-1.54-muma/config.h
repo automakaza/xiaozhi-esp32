@@ -92,7 +92,7 @@
 // seguro (a referência nunca chega depois do eco). Se não cancelar bem,
 // testar 10 e depois 20.
 #define SOPHIA_AEC            1
-#define SOPHIA_AEC_ATRASO_MS  20
+#define SOPHIA_AEC_ATRASO_MS  5
 
 #define DISPLAY_SPI_SCLK_HZ     (40 * 1000 * 1000)
 
