@@ -54,6 +54,18 @@ Observações:
   vezes) e depois deixa o lembrete na tela. Se o radar não vê ninguém na hora,
   ela guarda o aviso e fala quando alguém chegar ("enquanto você estava fora...").
 
+## Cancelamento de eco (ouvir "Sophia" com a rádio tocando)
+
+Igual ao robozinho MUMA: o ES8388 desta placa não devolve o som do
+alto-falante, então o firmware guarda o som que vai tocar (`eco_referencia.h`)
+e entrega o microfone em 2 canais `[mic, referência]`. O AFE liga o AEC
+enquanto espera a palavra de ativação.
+
+- `config.h` → `SOPHIA_AEC 1` (0 desliga) e `SOPHIA_AEC_ATRASO_MS 0`.
+- No log de boot aparece `AEC por software ligado (atraso 0 ms)`.
+- Usa o `aec_nlp_level = AEC_NLP_LEVEL_NORMAL` já ajustado em
+  `main/audio/engines/afe_audio_engine.cc` para a MUMA.
+
 ## Botões
 
 - **BOOT ou meio**: inicia/encerra a conversa. Durante a partida, entra na

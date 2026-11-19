@@ -3,6 +3,8 @@
 //
 // - Áudio: Es8388AudioCodec (I2S duplex), com as saídas analógicas do DAC
 //   desligadas quando o áudio fica ocioso (o HT6872 não tem enable).
+//   SOPHIA_AEC: cancelamento de eco por software (igual ao robozinho MUMA),
+//   para ela ouvir "Sophia" com a rádio tocando.
 // - Display: OLED I2C SSD1306/SH1106 opcional (SDA GPIO17, SCL GPIO18). Se não
 //   houver display ligado, a placa funciona sem ele. Em 128x64 mostra olhos
 //   grandes animados (EyesOledDisplay; desligável em DISPLAY_ROBOT_EYES).
@@ -17,6 +19,7 @@
 
 #include "wifi_board.h"
 #include "codecs/es8388_audio_codec.h"
+#include "eco_referencia.h"
 #include "display/oled_display.h"
 #include "eyes_oled_display.h"
 #include "presence_sensor.h"
@@ -64,6 +67,67 @@ public:
         }
     }
 
+    // Cancelamento de eco por software (mesmo esquema do robozinho MUMA).
+    // O ES8388 desta placa não devolve o som do alto-falante (os dois
+    // microfones ocupam as entradas), então o som que vai tocar é guardado
+    // como "referência" e o microfone é entregue em 2 canais [mic, referência].
+    // Com isso o AFE liga o AEC enquanto escuta a palavra de ativação.
+    // Chamar UMA vez, antes do AudioService ler input_channels().
+    void HabilitarReferenciaEco(int atraso_ms) {
+        eco_ = new EcoReferencia(output_sample_rate_, atraso_ms);
+        if (!eco_->ok()) {
+            ESP_LOGE(TAG, "Sem memória para a referência de eco; AEC desligado");
+            delete eco_;
+            eco_ = nullptr;
+            return;
+        }
+        input_reference_ = true;
+        input_channels_ = 2;   // [mic, referência]
+        ESP_LOGI(TAG, "AEC por software ligado (atraso %d ms)", atraso_ms);
+    }
+
+    // O Es8388AudioCodec, ao ver input_reference_, abriria o 2º canal do ADC
+    // como referência de hardware e mexeria no ganho do microfone. Aqui a
+    // referência é por software: o codec continua abrindo só o microfone.
+    // (EnableInput(true) roda na mesma tarefa que lê o microfone.)
+    virtual void EnableInput(bool enable) override {
+        if (eco_ == nullptr || !enable) {
+            Es8388AudioCodec::EnableInput(enable);
+            return;
+        }
+        input_reference_ = false;
+        input_channels_ = 1;
+        Es8388AudioCodec::EnableInput(true);
+        input_reference_ = true;
+        input_channels_ = 2;
+    }
+
+    virtual void OutputData(std::vector<int16_t>& data) override {
+        if (eco_ != nullptr && output_enabled()) {
+            eco_->Gravar(data.data(), data.size());
+        }
+        Es8388AudioCodec::OutputData(data);
+    }
+
+    virtual bool InputData(std::vector<int16_t>& data) override {
+        if (eco_ == nullptr) {
+            return Es8388AudioCodec::InputData(data);
+        }
+        // data vem dimensionado para 2 canais intercalados
+        const size_t n = data.size() / 2;
+        mic_.resize(n);
+        ref_.resize(n);
+        if (!Es8388AudioCodec::InputData(mic_)) {
+            return false;
+        }
+        eco_->Ler(ref_.data(), n);
+        for (size_t i = 0; i < n; ++i) {
+            data[2 * i] = mic_[i];
+            data[2 * i + 1] = ref_[i];
+        }
+        return true;
+    }
+
     virtual void EnableOutput(bool enable) override {
         if (enable) {
             SetDacPower(true);
@@ -79,6 +143,9 @@ public:
 
 private:
     i2c_master_dev_handle_t dac_dev_ = nullptr;
+    EcoReferencia* eco_ = nullptr;
+    std::vector<int16_t> mic_;
+    std::vector<int16_t> ref_;
 
     // Volume analógico das saídas (regs 46..49 = LOUT1/ROUT1/LOUT2/ROUT2):
     // 0..33 = -45 dB .. +4,5 dB, passos de 1,5 dB (30 = 0 dB).
@@ -398,6 +465,13 @@ public:
 
     virtual AudioCodec* GetAudioCodec() override {
         static AudinAudioCodec audio_codec(codec_i2c_bus_, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE);
+#if SOPHIA_AEC
+        static bool eco_ligado = false;
+        if (!eco_ligado) {
+            audio_codec.HabilitarReferenciaEco(SOPHIA_AEC_ATRASO_MS);
+            eco_ligado = true;
+        }
+#endif
         return &audio_codec;
     }
 

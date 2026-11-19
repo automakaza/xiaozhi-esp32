@@ -20,7 +20,18 @@
 
 // Sem referência de saída na entrada: os dois microfones ocupam LIN1/RIN1 do
 // ES8388 (não há laço de retorno do DAC para cancelamento de eco).
+// Deixar false: o cancelamento de eco é feito por software (SOPHIA_AEC abaixo).
 #define AUDIO_INPUT_REFERENCE       false
+
+// Cancelamento de eco por software (igual ao robozinho MUMA): guarda o som que
+// vai para o alto-falante e o AFE tira esse som do microfone enquanto espera a
+// palavra de ativação. Assim ela ouve "Sophia" com a rádio tocando.
+// 0 = desliga (volta ao comportamento antigo).
+#define SOPHIA_AEC            1
+// Atraso entre mandar o som para o I2S e ele sair no alto-falante (ms).
+// Na MUMA o melhor foi 0. Errar para menos: o AEC tolera a referência
+// chegando um pouco antes do eco, mas não depois.
+#define SOPHIA_AEC_ATRASO_MS  0
 
 #define AUDIO_I2S_GPIO_MCLK GPIO_NUM_8
 #define AUDIO_I2S_GPIO_BCLK GPIO_NUM_3
